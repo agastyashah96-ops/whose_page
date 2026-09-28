@@ -14,6 +14,8 @@ const state = {
   players: [],        // all players in room
   channel: null,
   timerHandle: null,
+  heartbeatHandle: null,
+  cleanupHandle: null,
   guessTarget: null,  // {assignment, paper, players}
 };
 
@@ -131,16 +133,43 @@ async function enterRoom(roomId, playerId) {
   const { data: room } = await supabase.from("rooms").select().eq("id", roomId).single();
   state.room = room;
 
+  await cleanupStalePlayers(roomId);
+  await touchPlayer();
   await refreshPlayers();
   subscribeRealtime(roomId);
+  startPresenceHeartbeat();
   $("room-bar").classList.remove("hidden");
   $("room-bar-code").textContent = room.code;
   renderForStatus();
 }
 
+async function touchPlayer() {
+  if (!state.playerId) return;
+  await supabase.from("players").update({ last_seen: new Date().toISOString() }).eq("id", state.playerId);
+}
+
+async function cleanupStalePlayers(roomId) {
+  const cutoff = new Date(Date.now() - 30000).toISOString();
+  await supabase.from("players").delete().eq("room_id", roomId).lt("last_seen", cutoff);
+}
+
+function startPresenceHeartbeat() {
+  clearInterval(state.heartbeatHandle);
+  state.heartbeatHandle = setInterval(async () => {
+    await touchPlayer();
+    if (state.room?.id) await cleanupStalePlayers(state.room.id);
+  }, 10000);
+}
+
+function stopPresenceHeartbeat() {
+  clearInterval(state.heartbeatHandle);
+  state.heartbeatHandle = null;
+}
+
 async function leaveRoom() {
   clearInterval(state.timerHandle);
   state.timerHandle = null;
+  stopPresenceHeartbeat();
 
   if (state.channel) {
     await supabase.removeChannel(state.channel);
@@ -153,8 +182,21 @@ async function leaveRoom() {
     }
   }
 
+  const roomId = state.room?.id;
+
   if (state.playerId) {
     await supabase.from("players").delete().eq("id", state.playerId);
+  }
+
+  // If nobody is left, remove the room too. Cascades papers/assignments.
+  if (roomId) {
+    const { count } = await supabase
+      .from("players")
+      .select("id", { count: "exact", head: true })
+      .eq("room_id", roomId);
+    if ((count ?? 0) === 0) {
+      await supabase.from("rooms").delete().eq("id", roomId);
+    }
   }
 
   state.room = null;
@@ -175,6 +217,7 @@ async function leaveRoom() {
 }
 
 async function refreshPlayers() {
+  if (state.room?.id) await cleanupStalePlayers(state.room.id);
   const { data } = await supabase.from("players").select().eq("room_id", state.room.id).order("joined_at");
   state.players = data || [];
 }
@@ -381,6 +424,7 @@ async function submitPaper() {
   $("btn-submit-paper").disabled = true;
   clearInterval(state.timerHandle);
   state.timerHandle = null;
+  stopPresenceHeartbeat();
   $("write-timer-state").textContent = "Submitted";
   const { error } = await supabase.from("papers").insert({
     room_id: state.room.id,
@@ -628,6 +672,20 @@ $("btn-join").onclick = joinRoom;
 $("btn-start").onclick = startGame;
 $("btn-submit-paper").onclick = submitPaper;
 $("btn-next-round").onclick = nextRound;
+
+// Keep the server from retaining players who close the tab/browser.
+window.addEventListener("pagehide", () => {
+  stopPresenceHeartbeat();
+  if (state.playerId) {
+    // Best effort: normal Exit still performs the awaited delete above.
+    supabase.from("players").delete().eq("id", state.playerId);
+  }
+});
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") touchPlayer();
+});
+
 $("btn-leave").onclick = leaveRoom;
 
 $("input-name").addEventListener("keydown", (event) => {

@@ -23,7 +23,8 @@ create table if not exists players (
   avatar     text not null,
   is_host    boolean not null default false,
   score      int not null default 0,
-  joined_at  timestamptz not null default now()
+  joined_at  timestamptz not null default now(),
+  last_seen  timestamptz not null default now()
 );
 
 -- PAPERS (one submission per player per round) -----------------------
@@ -66,3 +67,27 @@ alter publication supabase_realtime add table rooms;
 alter publication supabase_realtime add table players;
 alter publication supabase_realtime add table papers;
 alter publication supabase_realtime add table assignments;
+
+
+-- Cleanup helpers -----------------------------------------------------
+-- Safe to run after the original schema.
+alter table players add column if not exists last_seen timestamptz not null default now();
+
+create or replace function cleanup_empty_room()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not exists (select 1 from players where room_id = old.room_id) then
+    delete from rooms where id = old.room_id;
+  end if;
+  return old;
+end;
+$$;
+
+drop trigger if exists players_cleanup_empty_room on players;
+create trigger players_cleanup_empty_room
+after delete on players
+for each row execute function cleanup_empty_room();

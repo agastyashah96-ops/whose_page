@@ -12,7 +12,7 @@ export const AVATARS = [
   "assets/avatars/alien.svg",
   "assets/avatars/bear.svg",
   "assets/avatars/cat.svg",
-  "assets/avatars/robot.svg",
   "assets/avatars/panda.svg",
-  "assets/avatars/ghost.svg"
+  "assets/avatars/fox.svg",
+  "assets/avatars/robot.svg"
 ];
