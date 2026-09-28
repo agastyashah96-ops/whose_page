@@ -15,6 +15,7 @@ const state = {
   channel: null,
   timerHandle: null,
   guessTarget: null,  // {assignment, paper, players}
+  submittedRound: null, // this player's paper submission
 };
 
 function showScreen(name) {
@@ -55,34 +56,43 @@ function clearSession() {
 // ---------------------------------------------------------------------
 function renderAvatarPicker() {
   const preview = $("avatar-preview");
-  if (!preview) return;
+  if (!preview || !AVATARS.length) return;
 
-  preview.textContent = state.selectedAvatar;
+  preview.src = state.selectedAvatar;
+  preview.alt = "Selected avatar";
   preview.classList.remove("pop");
   void preview.offsetWidth;
   preview.classList.add("pop");
 }
 
 function changeAvatar(direction) {
+  if (!AVATARS.length) return;
   const current = AVATARS.indexOf(state.selectedAvatar);
-  const next = (current + direction + AVATARS.length) % AVATARS.length;
+  const safeCurrent = current < 0 ? 0 : current;
+  const next = (safeCurrent + direction + AVATARS.length) % AVATARS.length;
   state.selectedAvatar = AVATARS[next];
+  if (AVATARS.length) {
+  state.selectedAvatar = AVATARS[0];
   renderAvatarPicker();
+} else {
+  $("name-error").textContent = "No SVG avatars were found in assets/avatars.";
+}
 }
 
 function continueFromName() {
   const name = $("input-name").value.trim();
   if (!name) return setError("name-error", "Enter your name first.");
+  if (!state.selectedAvatar) return setError("name-error", "Avatars are still loading.");
 
   $("mode-name").textContent = name;
-  $("mode-avatar").textContent = state.selectedAvatar;
+  $("mode-avatar").src = state.selectedAvatar;
   showScreen("mode");
 }
 
 function backToName() {
   showScreen("name");
   $("mode-name").textContent = "";
-  $("mode-avatar").textContent = "";
+  $("mode-avatar").removeAttribute("src");
 }
 
 // ---------------------------------------------------------------------
@@ -196,11 +206,18 @@ function subscribeRealtime(roomId) {
     .on("postgres_changes", { event: "*", schema: "public", table: "players", filter: `room_id=eq.${roomId}` },
       async () => {
         await refreshPlayers();
-        renderForStatus();
+        if (state.room?.status === "writing") {
+          await renderPlayerStrip();
+        } else {
+          renderForStatus();
+        }
       })
     .on("postgres_changes", { event: "*", schema: "public", table: "papers", filter: `room_id=eq.${roomId}` },
       async () => {
-        if (state.room?.status === "writing") await maybeAutoAdvanceWriting();
+        if (state.room?.status === "writing") {
+          await renderPlayerStrip();
+          await maybeAutoAdvanceWriting();
+        }
       })
     .on("postgres_changes", { event: "*", schema: "public", table: "assignments", filter: `room_id=eq.${roomId}` },
       async () => {
@@ -218,16 +235,89 @@ function isHost() {
 }
 
 // ---------------------------------------------------------------------
+// horizontal player strip (Skribbl-style)
+// ---------------------------------------------------------------------
+async function renderPlayerStrip() {
+  const strip = $("player-strip");
+  if (!strip || !state.room || !state.players.length) return;
+
+  const round = state.room.round;
+  const { data: papers } = await supabase
+    .from("papers")
+    .select("author_id")
+    .eq("room_id", state.room.id)
+    .eq("round", round);
+
+  const submitted = new Set((papers || []).map((p) => p.author_id));
+  strip.classList.remove("hidden");
+  strip.innerHTML = "";
+
+  state.players.forEach((p) => {
+    const item = document.createElement("div");
+    item.className = "player-chip" + (p.id === state.playerId ? " me" : "");
+    if (submitted.has(p.id)) item.classList.add("submitted");
+
+    const avatar = document.createElement("img");
+    avatar.src = p.avatar;
+    avatar.alt = "";
+    avatar.className = "player-chip-avatar";
+
+    const info = document.createElement("div");
+    info.className = "player-chip-info";
+
+    const name = document.createElement("span");
+    name.className = "player-chip-name";
+    name.textContent = p.name;
+
+    const score = document.createElement("span");
+    score.className = "player-chip-score";
+    score.textContent = `${p.score ?? 0} pts`;
+
+    info.append(name, score);
+
+    const status = document.createElement("span");
+    status.className = "player-chip-status";
+    status.textContent = submitted.has(p.id) ? "✓" : "";
+
+    item.append(avatar, info, status);
+    strip.appendChild(item);
+  });
+}
+
+// ---------------------------------------------------------------------
 // dispatch UI based on room status
 // ---------------------------------------------------------------------
 function renderForStatus() {
-  if (!state.room) return;
+  if (!state.room) {
+    $("player-strip")?.classList.add("hidden");
+    return;
+  }
+
+  $("player-strip")?.classList.remove("hidden");
+
   switch (state.room.status) {
-    case "lobby": renderLobby(); showScreen("lobby"); break;
-    case "writing": renderWriting(); showScreen("writing"); break;
-    case "guessing": renderGuessing(); showScreen("guessing"); break;
-    case "reveal": renderReveal(); showScreen("reveal"); break;
-    default: showScreen("lobby");
+    case "lobby":
+      renderLobby();
+      renderPlayerStrip();
+      showScreen("lobby");
+      break;
+    case "writing":
+      renderWriting();
+      renderPlayerStrip();
+      showScreen("writing");
+      break;
+    case "guessing":
+      renderGuessing();
+      renderPlayerStrip();
+      showScreen("guessing");
+      break;
+    case "reveal":
+      renderReveal();
+      renderPlayerStrip();
+      showScreen("reveal");
+      break;
+    default:
+      showScreen("lobby");
   }
 }
 
@@ -240,8 +330,21 @@ function renderLobby() {
   list.innerHTML = "";
   state.players.forEach((p) => {
     const li = document.createElement("li");
-    li.innerHTML = `<span class="emoji">${p.avatar}</span> ${p.name}` +
-      (p.is_host ? `<span class="host-tag">HOST</span>` : "");
+    const avatar = document.createElement("img");
+    avatar.className = "lobby-avatar";
+    avatar.src = p.avatar;
+    avatar.alt = "";
+
+    const name = document.createElement("span");
+    name.textContent = p.name;
+
+    li.append(avatar, name);
+    if (p.is_host) {
+      const hostTag = document.createElement("span");
+      hostTag.className = "host-tag";
+      hostTag.textContent = "HOST";
+      li.appendChild(hostTag);
+    }
     list.appendChild(li);
   });
 
@@ -269,11 +372,20 @@ async function startGame() {
 // ---------------------------------------------------------------------
 function renderWriting() {
   $("write-round").textContent = state.room.round;
-  $("write-text").value = "";
-  $("write-text").disabled = false;
-  $("btn-submit-paper").disabled = false;
-  $("write-status").textContent = "";
-  startCountdown(state.room.writing_ends_at);
+
+  if (state.submittedRound !== state.room.round) {
+    $("write-text").value = "";
+    $("write-text").disabled = false;
+    $("btn-submit-paper").disabled = false;
+    $("write-status").textContent = "";
+    $("write-timer-state").textContent = "Writing";
+    startCountdown(state.room.writing_ends_at);
+  } else {
+    $("write-text").disabled = true;
+    $("btn-submit-paper").disabled = true;
+    $("write-status").textContent = "Submitted ✓ — waiting for the other players…";
+    $("write-timer-state").textContent = "Submitted";
+  }
 }
 
 function startCountdown(endsAtISO) {
@@ -286,6 +398,7 @@ function startCountdown(endsAtISO) {
     el.classList.toggle("low", remaining <= 10);
     if (remaining <= 0) {
       clearInterval(state.timerHandle);
+      $("write-timer-state").textContent = "Time's up";
       $("write-text").disabled = true;
       $("btn-submit-paper").disabled = true;
       $("write-status").textContent = "Time's up — shuffling papers…";
@@ -298,21 +411,30 @@ function startCountdown(endsAtISO) {
 
 async function submitPaper() {
   const content = $("write-text").value.trim();
-  if (!content) return;
+  if (!content || state.submittedRound === state.room.round) return;
+
   $("btn-submit-paper").disabled = true;
+
   const { error } = await supabase.from("papers").insert({
     room_id: state.room.id,
     round: state.room.round,
     author_id: state.playerId,
     content,
   });
-  if (error) {
-    // likely already submitted (unique constraint) — that's fine
-    $("write-status").textContent = "Submitted. Waiting for others…";
-  } else {
-    $("write-status").textContent = "Submitted. Waiting for others…";
-    $("write-text").disabled = true;
-  }
+
+  // Stop this player's timer as soon as their paper is submitted.
+  // The room timer continues for everyone else.
+  state.submittedRound = state.room.round;
+  clearInterval(state.timerHandle);
+  state.timerHandle = null;
+
+  $("write-text").disabled = true;
+  $("write-timer-state").textContent = "Submitted";
+  $("write-status").textContent = error
+    ? "Already submitted ✓ — waiting for the other players…"
+    : "Submitted ✓ — waiting for the other players…";
+
+  await renderPlayerStrip();
   await maybeAutoAdvanceWriting();
 }
 
@@ -420,7 +542,15 @@ async function renderGuessing() {
     .forEach((p) => {
       const card = document.createElement("div");
       card.className = "player-card" + (assignment.guessed_player_id === p.id ? " picked" : "");
-      card.innerHTML = `<span class="emoji">${p.avatar}</span> ${p.name}`;
+      const avatar = document.createElement("img");
+      avatar.className = "guess-avatar";
+      avatar.src = p.avatar;
+      avatar.alt = "";
+
+      const name = document.createElement("span");
+      name.textContent = p.name;
+
+      card.append(avatar, name);
       if (!already) {
         card.onclick = () => submitGuess(assignment.id, p.id);
       }
@@ -495,12 +625,52 @@ async function renderReveal() {
     const correct = a.guessed_player_id === a.papers.author_id;
     const div = document.createElement("div");
     div.className = "reveal-item";
-    div.innerHTML = `
-      <div class="content">"${a.papers.content}"</div>
-      <div>Written by <strong>${author?.avatar} ${author?.name}</strong></div>
-      <div>${guesser?.avatar} ${guesser?.name} guessed <strong>${guessed?.avatar || ""} ${guessed?.name || "—"}</strong>
-        — <span class="verdict ${correct ? "correct" : "wrong"}">${correct ? "correct!" : "wrong"}</span></div>
-    `;
+
+    const content = document.createElement("div");
+    content.className = "content";
+    content.textContent = `"${a.papers.content}"`;
+
+    const authorLine = document.createElement("div");
+    authorLine.append("Written by ");
+    if (author) {
+      const img = document.createElement("img");
+      img.className = "mini-avatar";
+      img.src = author.avatar;
+      img.alt = "";
+      const strong = document.createElement("strong");
+      strong.textContent = author.name;
+      authorLine.append(img, strong);
+    }
+
+    const guessLine = document.createElement("div");
+    if (guesser) {
+      const img = document.createElement("img");
+      img.className = "mini-avatar";
+      img.src = guesser.avatar;
+      img.alt = "";
+      guessLine.append(img, document.createTextNode(`${guesser.name} guessed `));
+    } else {
+      guessLine.append("Unknown player guessed ");
+    }
+
+    if (guessed) {
+      const img = document.createElement("img");
+      img.className = "mini-avatar";
+      img.src = guessed.avatar;
+      img.alt = "";
+      const strong = document.createElement("strong");
+      strong.textContent = guessed.name;
+      guessLine.append(img, strong);
+    } else {
+      guessLine.append("—");
+    }
+
+    const verdict = document.createElement("span");
+    verdict.className = `verdict ${correct ? "correct" : "wrong"}`;
+    verdict.textContent = correct ? " correct!" : " wrong";
+    guessLine.append(" — ", verdict);
+
+    div.append(content, authorLine, guessLine);
     list.appendChild(div);
   });
 
@@ -509,7 +679,18 @@ async function renderReveal() {
   [...state.players].sort((a, b) => b.score - a.score).forEach((p) => {
     const row = document.createElement("div");
     row.className = "score-row";
-    row.innerHTML = `<span>${p.avatar} ${p.name}</span><span>${p.score}</span>`;
+    const avatar = document.createElement("img");
+    avatar.className = "mini-avatar";
+    avatar.src = p.avatar;
+    avatar.alt = "";
+
+    const name = document.createElement("span");
+    name.textContent = p.name;
+
+    const points = document.createElement("strong");
+    points.textContent = `${p.score ?? 0} pts`;
+
+    row.append(avatar, name, points);
     board.appendChild(row);
   });
 
@@ -519,6 +700,7 @@ async function renderReveal() {
 }
 
 async function nextRound() {
+  state.submittedRound = null;
   const seconds = state.room.round_seconds;
   const endsAt = new Date(Date.now() + seconds * 1000).toISOString();
   await supabase.from("rooms").update({
