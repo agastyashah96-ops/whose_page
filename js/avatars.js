@@ -1,15 +1,11 @@
 const AVATAR_BASE = "assets/avatars/";
 
 export const AVATARS = [
-  "alien.svg",
-  "bear.svg",
-  "cat.svg",
-  "cyclops.svg",
-  "fox.svg",
-  "ghost.svg",
-  "panda.svg",
-  "robot.svg",
+  "comic.svg",
+  "knight.svg",
+  "mermaid.svg",
   "john.svg",
+  "dragon.svg",
   "detective.svg",
   "pirate.svg"
 ];
