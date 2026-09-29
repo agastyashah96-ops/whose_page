@@ -9,6 +9,9 @@ export const AVATARS = [
   "ghost.svg",
   "panda.svg",
   "robot.svg",
+  "john.svg",
+  "detective.svg",
+  "pirate.svg"
 ];
 
 export function avatarMarkup(avatar, className = "avatar-svg") {
