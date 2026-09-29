@@ -1,5 +1,5 @@
 import { supabase } from "./supabaseClient.js";
-import { AVATARS } from "./avatars.js";
+import { AVATARS, avatarMarkup } from "./avatars.js";
 
 const $ = (id) => document.getElementById(id);
 const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O/1/I
@@ -50,7 +50,7 @@ function renderAvatarPicker() {
   const preview = $("avatar-preview");
   if (!preview) return;
 
-  preview.textContent = state.selectedAvatar;
+  preview.innerHTML = avatarMarkup(state.selectedAvatar, "avatar-svg avatar-preview-img");
   preview.classList.remove("pop");
   void preview.offsetWidth;
   preview.classList.add("pop");
@@ -68,7 +68,7 @@ function continueFromName() {
   if (!name) return setError("name-error", "Enter your name first.");
 
   $("mode-name").textContent = name;
-  $("mode-avatar").textContent = state.selectedAvatar;
+  $("mode-avatar").innerHTML = avatarMarkup(state.selectedAvatar, "avatar-svg avatar-mode-img");
   showScreen("mode");
 }
 
@@ -146,6 +146,7 @@ async function enterRoom(roomId, playerId) {
   $("room-bar").classList.remove("hidden");
   $("room-bar-code").textContent = room.code;
   renderForStatus();
+  await renderPlayerStrip();
 }
 
 async function leaveRoom() {
@@ -176,6 +177,8 @@ async function leaveRoom() {
   state.currentWritingRound = null;
 
   $("room-bar").classList.add("hidden");
+  $("player-strip").classList.add("hidden");
+  $("player-strip").innerHTML = "";
   $("room-bar-code").textContent = "";
   $("input-code").value = "";
   $("write-text").value = "";
@@ -186,6 +189,64 @@ async function leaveRoom() {
 async function refreshPlayers() {
   const { data } = await supabase.from("players").select().eq("room_id", state.room.id).order("joined_at");
   state.players = data || [];
+}
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (char) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;",
+  }[char]));
+}
+
+async function renderPlayerStrip() {
+  const strip = $("player-strip");
+  if (!strip || !state.room || !state.playerId) return;
+
+  const status = state.room.status;
+  const show = ["writing", "guessing", "reveal"].includes(status);
+  strip.classList.toggle("hidden", !show);
+  if (!show) return;
+
+  let doneIds = new Set();
+
+  if (status === "writing") {
+    const { data: papers } = await supabase.from("papers")
+      .select("author_id").eq("room_id", state.room.id).eq("round", state.room.round);
+    doneIds = new Set((papers || []).map((p) => p.author_id));
+  } else if (status === "guessing") {
+    const { data: assignments } = await supabase.from("assignments")
+      .select("assigned_to, guessed_player_id").eq("room_id", state.room.id).eq("round", state.room.round);
+    doneIds = new Set((assignments || [])
+      .filter((a) => a.guessed_player_id !== null)
+      .map((a) => a.assigned_to));
+  } else {
+    doneIds = new Set(state.players.map((p) => p.id));
+  }
+
+  strip.innerHTML = "";
+
+  state.players.forEach((p) => {
+    const card = document.createElement("div");
+    const done = doneIds.has(p.id);
+    const me = p.id === state.playerId;
+
+    card.className = `player-tab${done ? " done" : ""}${me ? " me" : ""}`;
+    card.title = `${p.name} · ${p.score ?? 0} point${p.score === 1 ? "" : "s"}`;
+
+    const statusLabel =
+      status === "writing" ? (done ? "Done" : "Writing…") :
+      status === "guessing" ? (done ? "Done" : "Guessing…") :
+      "Done";
+
+    card.innerHTML = `
+      <div class="player-tab-avatar">${avatarMarkup(p.avatar, "avatar-svg")}</div>
+      <div class="player-tab-info">
+        <div class="player-tab-name">${escapeHtml(p.name)}</div>
+        <div class="player-tab-status"><span class="player-status-dot"></span>${statusLabel}</div>
+      </div>
+      <div class="player-tab-score">${p.score ?? 0}</div>
+    `;
+    strip.appendChild(card);
+  });
 }
 
 function subscribeRealtime(roomId) {
@@ -206,10 +267,12 @@ function subscribeRealtime(roomId) {
         }
 
         renderForStatus();
+        await renderPlayerStrip();
       })
     .on("postgres_changes", { event: "*", schema: "public", table: "players", filter: `room_id=eq.${roomId}` },
       async () => {
         await refreshPlayers();
+        await renderPlayerStrip();
 
         // Player joins/leaves/score changes should never rebuild the writing form.
         if (state.room?.status === "writing") {
@@ -220,7 +283,10 @@ function subscribeRealtime(roomId) {
       })
     .on("postgres_changes", { event: "*", schema: "public", table: "papers", filter: `room_id=eq.${roomId}` },
       async () => {
-        if (state.room?.status === "writing") await maybeAutoAdvanceWriting();
+        if (state.room?.status === "writing") {
+          await renderPlayerStrip();
+          await maybeAutoAdvanceWriting();
+        }
       })
     .on("postgres_changes", { event: "*", schema: "public", table: "assignments", filter: `room_id=eq.${roomId}` },
       async () => {
@@ -260,7 +326,7 @@ function renderLobby() {
   list.innerHTML = "";
   state.players.forEach((p) => {
     const li = document.createElement("li");
-    li.innerHTML = `<span class="emoji">${p.avatar}</span> ${p.name}` +
+    li.innerHTML = `${avatarMarkup(p.avatar, "avatar-svg lobby-avatar")} ${escapeHtml(p.name)}` +
       (p.is_host ? `<span class="host-tag">HOST</span>` : "");
     list.appendChild(li);
   });
@@ -339,6 +405,7 @@ async function submitPaper() {
     $("write-status").textContent = "Submitted. Waiting for others…";
     $("write-text").disabled = true;
   }
+  await renderPlayerStrip();
   await maybeAutoAdvanceWriting();
 }
 
@@ -427,6 +494,7 @@ async function assignPapers() {
 // GUESSING
 // ---------------------------------------------------------------------
 async function renderGuessing() {
+  await renderPlayerStrip();
   const { data: assignment } = await supabase
     .from("assignments").select()
     .eq("room_id", state.room.id).eq("round", state.room.round).eq("assigned_to", state.playerId)
@@ -446,7 +514,7 @@ async function renderGuessing() {
     .forEach((p) => {
       const card = document.createElement("div");
       card.className = "player-card" + (assignment.guessed_player_id === p.id ? " picked" : "");
-      card.innerHTML = `<span class="emoji">${p.avatar}</span> ${p.name}`;
+      card.innerHTML = `${avatarMarkup(p.avatar, "avatar-svg guess-avatar")} ${escapeHtml(p.name)}`;
       if (!already) {
         card.onclick = () => submitGuess(assignment.id, p.id);
       }
@@ -505,6 +573,7 @@ async function claimAndReveal() {
 
 async function renderReveal() {
   await refreshPlayers();
+  await renderPlayerStrip();
   $("reveal-round").textContent = state.room.round;
 
   const { data: assignments } = await supabase
@@ -523,8 +592,8 @@ async function renderReveal() {
     div.className = "reveal-item";
     div.innerHTML = `
       <div class="content">"${a.papers.content}"</div>
-      <div>Written by <strong>${author?.avatar} ${author?.name}</strong></div>
-      <div>${guesser?.avatar} ${guesser?.name} guessed <strong>${guessed?.avatar || ""} ${guessed?.name || "—"}</strong>
+      <div>Written by <strong>${avatarMarkup(author?.avatar, "avatar-svg inline-avatar")} ${escapeHtml(author?.name || "Unknown")}</strong></div>
+      <div>${avatarMarkup(guesser?.avatar, "avatar-svg inline-avatar")} ${escapeHtml(guesser?.name || "Unknown")} guessed <strong>${avatarMarkup(guessed?.avatar, "avatar-svg inline-avatar")} ${escapeHtml(guessed?.name || "—")}</strong>
         — <span class="verdict ${correct ? "correct" : "wrong"}">${correct ? "correct!" : "wrong"}</span></div>
     `;
     list.appendChild(div);
@@ -535,7 +604,7 @@ async function renderReveal() {
   [...state.players].sort((a, b) => b.score - a.score).forEach((p) => {
     const row = document.createElement("div");
     row.className = "score-row";
-    row.innerHTML = `<span>${p.avatar} ${p.name}</span><span>${p.score}</span>`;
+    row.innerHTML = `<span>${avatarMarkup(p.avatar, "avatar-svg inline-avatar")} ${escapeHtml(p.name)}</span><span>${p.score}</span>`;
     board.appendChild(row);
   });
 
