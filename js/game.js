@@ -14,9 +14,8 @@ const state = {
   players: [],        // all players in room
   channel: null,
   timerHandle: null,
-  heartbeatHandle: null,
-  cleanupHandle: null,
   guessTarget: null,  // {assignment, paper, players}
+  currentWritingRound: null,
 };
 
 function showScreen(name) {
@@ -39,23 +38,27 @@ function shuffle(arr) {
   return a;
 }
 
+// Session persistence is intentionally disabled. Every page load starts fresh.
+function clearSession() {
+  localStorage.removeItem("bp_session");
+}
+
 // ---------------------------------------------------------------------
 // avatar picker (home screen)
 // ---------------------------------------------------------------------
 function renderAvatarPicker() {
   const preview = $("avatar-preview");
-  if (!preview || !AVATARS.length) return;
-  preview.src = state.selectedAvatar;
-  preview.alt = "Selected avatar";
+  if (!preview) return;
+
+  preview.textContent = state.selectedAvatar;
   preview.classList.remove("pop");
   void preview.offsetWidth;
   preview.classList.add("pop");
 }
 
 function changeAvatar(direction) {
-  if (!AVATARS.length) return;
   const current = AVATARS.indexOf(state.selectedAvatar);
-  const next = ((current < 0 ? 0 : current) + direction + AVATARS.length) % AVATARS.length;
+  const next = (current + direction + AVATARS.length) % AVATARS.length;
   state.selectedAvatar = AVATARS[next];
   renderAvatarPicker();
 }
@@ -63,13 +66,16 @@ function changeAvatar(direction) {
 function continueFromName() {
   const name = $("input-name").value.trim();
   if (!name) return setError("name-error", "Enter your name first.");
+
   $("mode-name").textContent = name;
-  $("mode-avatar").src = state.selectedAvatar;
+  $("mode-avatar").textContent = state.selectedAvatar;
   showScreen("mode");
 }
 
 function backToName() {
   showScreen("name");
+  $("mode-name").textContent = "";
+  $("mode-avatar").textContent = "";
 }
 
 // ---------------------------------------------------------------------
@@ -99,6 +105,7 @@ async function createRoom() {
     .single();
   if (pErr) return setError("name-error", pErr.message);
 
+  clearSession();
   enterRoom(room.id, player.id);
 }
 
@@ -119,6 +126,7 @@ async function joinRoom() {
     .single();
   if (pErr) return setError("name-error", pErr.message);
 
+  clearSession();
   enterRoom(room.id, player.id);
 }
 
@@ -133,91 +141,49 @@ async function enterRoom(roomId, playerId) {
   const { data: room } = await supabase.from("rooms").select().eq("id", roomId).single();
   state.room = room;
 
-  await cleanupStalePlayers(roomId);
-  await touchPlayer();
   await refreshPlayers();
   subscribeRealtime(roomId);
-  startPresenceHeartbeat();
   $("room-bar").classList.remove("hidden");
   $("room-bar-code").textContent = room.code;
   renderForStatus();
 }
 
-async function touchPlayer() {
-  if (!state.playerId) return;
-  await supabase.from("players").update({ last_seen: new Date().toISOString() }).eq("id", state.playerId);
-}
-
-async function cleanupStalePlayers(roomId) {
-  const cutoff = new Date(Date.now() - 30000).toISOString();
-  await supabase.from("players").delete().eq("room_id", roomId).lt("last_seen", cutoff);
-}
-
-function startPresenceHeartbeat() {
-  clearInterval(state.heartbeatHandle);
-  state.heartbeatHandle = setInterval(async () => {
-    await touchPlayer();
-    if (state.room?.id) await cleanupStalePlayers(state.room.id);
-  }, 10000);
-}
-
-function stopPresenceHeartbeat() {
-  clearInterval(state.heartbeatHandle);
-  state.heartbeatHandle = null;
-}
-
 async function leaveRoom() {
   clearInterval(state.timerHandle);
   state.timerHandle = null;
-  stopPresenceHeartbeat();
 
   if (state.channel) {
     await supabase.removeChannel(state.channel);
   }
 
-  if (state.playerId && isHost()) {
+  if (isHost()) {
     const next = state.players.find((p) => p.id !== state.playerId);
     if (next) {
       await supabase.from("players").update({ is_host: true }).eq("id", next.id);
     }
   }
 
-  const roomId = state.room?.id;
-
   if (state.playerId) {
     await supabase.from("players").delete().eq("id", state.playerId);
   }
 
-  // If nobody is left, remove the room too. Cascades papers/assignments.
-  if (roomId) {
-    const { count } = await supabase
-      .from("players")
-      .select("id", { count: "exact", head: true })
-      .eq("room_id", roomId);
-    if ((count ?? 0) === 0) {
-      await supabase.from("rooms").delete().eq("id", roomId);
-    }
-  }
-
+  clearSession();
   state.room = null;
   state.players = [];
   state.playerId = null;
   state.channel = null;
   state.guessTarget = null;
+  state.currentWritingRound = null;
 
   $("room-bar").classList.add("hidden");
   $("room-bar-code").textContent = "";
-  $("player-strip")?.classList.add("hidden");
   $("input-code").value = "";
-  $("input-name").value = "";
   $("write-text").value = "";
   $("write-status").textContent = "";
-
   showScreen("name");
 }
 
 async function refreshPlayers() {
-  if (state.room?.id) await cleanupStalePlayers(state.room.id);
   const { data } = await supabase.from("players").select().eq("room_id", state.room.id).order("joined_at");
   state.players = data || [];
 }
@@ -229,12 +195,27 @@ function subscribeRealtime(roomId) {
     .channel(`room-${roomId}`)
     .on("postgres_changes", { event: "*", schema: "public", table: "rooms", filter: `id=eq.${roomId}` },
       async (payload) => {
+        const previousStatus = state.room?.status;
+        const previousRound = state.room?.round;
         state.room = payload.new;
+
+        // During writing, only rerender when the actual round/status changes.
+        // This prevents realtime events from wiping text the player is typing.
+        if (state.room.status === "writing" && previousStatus === "writing" && previousRound === state.room.round) {
+          return;
+        }
+
         renderForStatus();
       })
     .on("postgres_changes", { event: "*", schema: "public", table: "players", filter: `room_id=eq.${roomId}` },
       async () => {
         await refreshPlayers();
+
+        // Player joins/leaves/score changes should never rebuild the writing form.
+        if (state.room?.status === "writing") {
+          return;
+        }
+
         renderForStatus();
       })
     .on("postgres_changes", { event: "*", schema: "public", table: "papers", filter: `room_id=eq.${roomId}` },
@@ -257,90 +238,16 @@ function isHost() {
 }
 
 // ---------------------------------------------------------------------
-// Skribbl-style horizontal player strip
-// ---------------------------------------------------------------------
-async function renderPlayerStrip() {
-  const strip = $("player-strip");
-  if (!strip || !state.room || !state.players.length) return;
-
-  const { data: papers } = await supabase
-    .from("papers")
-    .select("author_id")
-    .eq("room_id", state.room.id)
-    .eq("round", state.room.round);
-
-  const submitted = new Set((papers || []).map((p) => p.author_id));
-  strip.classList.remove("hidden");
-  strip.innerHTML = "";
-
-  state.players.forEach((p) => {
-    const item = document.createElement("div");
-    item.className = "player-chip" + (p.id === state.playerId ? " me" : "");
-    if (submitted.has(p.id)) item.classList.add("submitted");
-
-    const avatar = document.createElement("img");
-    avatar.src = p.avatar;
-    avatar.alt = "";
-    avatar.className = "player-chip-avatar";
-
-    const info = document.createElement("div");
-    info.className = "player-chip-info";
-
-    const name = document.createElement("span");
-    name.className = "player-chip-name";
-    name.textContent = p.name;
-
-    const score = document.createElement("span");
-    score.className = "player-chip-score";
-    score.textContent = `${p.score ?? 0} pts`;
-
-    const status = document.createElement("span");
-    status.className = "player-chip-status";
-    status.textContent = submitted.has(p.id) ? "✓" : "";
-
-    info.append(name, score);
-    item.append(avatar, info, status);
-    strip.appendChild(item);
-  });
-}
-
-// ---------------------------------------------------------------------
 // dispatch UI based on room status
 // ---------------------------------------------------------------------
 function renderForStatus() {
-  if (!state.room) {
-    $("room-bar").classList.add("hidden");
-    $("player-strip")?.classList.add("hidden");
-    return;
-  }
-
-  $("room-bar").classList.remove("hidden");
-  $("room-bar-code").textContent = state.room.code;
-
+  if (!state.room) return;
   switch (state.room.status) {
-    case "lobby":
-      $("player-strip")?.classList.add("hidden");
-      renderLobby();
-      showScreen("lobby");
-      break;
-    case "writing":
-      renderWriting();
-      renderPlayerStrip();
-      showScreen("writing");
-      break;
-    case "guessing":
-      renderPlayerStrip();
-      renderGuessing();
-      showScreen("guessing");
-      break;
-    case "reveal":
-      renderPlayerStrip();
-      renderReveal();
-      showScreen("reveal");
-      break;
-    default:
-      $("player-strip")?.classList.add("hidden");
-      showScreen("lobby");
+    case "lobby": renderLobby(); showScreen("lobby"); break;
+    case "writing": renderWriting(); showScreen("writing"); break;
+    case "guessing": renderGuessing(); showScreen("guessing"); break;
+    case "reveal": renderReveal(); showScreen("reveal"); break;
+    default: showScreen("lobby");
   }
 }
 
@@ -353,17 +260,8 @@ function renderLobby() {
   list.innerHTML = "";
   state.players.forEach((p) => {
     const li = document.createElement("li");
-    const img = document.createElement("img");
-    img.className = "mini-avatar";
-    img.src = p.avatar;
-    img.alt = "";
-    li.append(img, document.createTextNode(p.name));
-    if (p.is_host) {
-      const tag = document.createElement("span");
-      tag.className = "host-tag";
-      tag.textContent = "HOST";
-      li.appendChild(tag);
-    }
+    li.innerHTML = `<span class="emoji">${p.avatar}</span> ${p.name}` +
+      (p.is_host ? `<span class="host-tag">HOST</span>` : "");
     list.appendChild(li);
   });
 
@@ -391,6 +289,12 @@ async function startGame() {
 // ---------------------------------------------------------------------
 function renderWriting() {
   $("write-round").textContent = state.room.round;
+
+  // Only initialize the writing form once per round.
+  // Realtime player updates must NEVER erase text currently being typed.
+  if (state.currentWritingRound === state.room.round) return;
+
+  state.currentWritingRound = state.room.round;
   $("write-text").value = "";
   $("write-text").disabled = false;
   $("btn-submit-paper").disabled = false;
@@ -422,10 +326,6 @@ async function submitPaper() {
   const content = $("write-text").value.trim();
   if (!content) return;
   $("btn-submit-paper").disabled = true;
-  clearInterval(state.timerHandle);
-  state.timerHandle = null;
-  stopPresenceHeartbeat();
-  $("write-timer-state").textContent = "Submitted";
   const { error } = await supabase.from("papers").insert({
     room_id: state.room.id,
     round: state.room.round,
@@ -546,11 +446,7 @@ async function renderGuessing() {
     .forEach((p) => {
       const card = document.createElement("div");
       card.className = "player-card" + (assignment.guessed_player_id === p.id ? " picked" : "");
-      const img = document.createElement("img");
-      img.className = "mini-avatar";
-      img.src = p.avatar;
-      img.alt = "";
-      card.append(img, document.createTextNode(p.name));
+      card.innerHTML = `<span class="emoji">${p.avatar}</span> ${p.name}`;
       if (!already) {
         card.onclick = () => submitGuess(assignment.id, p.id);
       }
@@ -649,6 +545,7 @@ async function renderReveal() {
 }
 
 async function nextRound() {
+  state.currentWritingRound = null;
   const seconds = state.room.round_seconds;
   const endsAt = new Date(Date.now() + seconds * 1000).toISOString();
   await supabase.from("rooms").update({
@@ -667,25 +564,12 @@ $("avatar-prev").onclick = () => changeAvatar(-1);
 $("avatar-next").onclick = () => changeAvatar(1);
 $("btn-continue").onclick = continueFromName;
 $("btn-back-name").onclick = backToName;
+
 $("btn-create").onclick = createRoom;
 $("btn-join").onclick = joinRoom;
 $("btn-start").onclick = startGame;
 $("btn-submit-paper").onclick = submitPaper;
 $("btn-next-round").onclick = nextRound;
-
-// Keep the server from retaining players who close the tab/browser.
-window.addEventListener("pagehide", () => {
-  stopPresenceHeartbeat();
-  if (state.playerId) {
-    // Best effort: normal Exit still performs the awaited delete above.
-    supabase.from("players").delete().eq("id", state.playerId);
-  }
-});
-
-document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible") touchPlayer();
-});
-
 $("btn-leave").onclick = leaveRoom;
 
 $("input-name").addEventListener("keydown", (event) => {
@@ -696,9 +580,7 @@ $("input-code").addEventListener("keydown", (event) => {
   if (event.key === "Enter") joinRoom();
 });
 
-// IMPORTANT: there is intentionally NO automatic room rejoin here.
-// Opening/reloading the site always starts at the name screen.
-clearInterval(state.timerHandle);
+// Always start on the name screen when the website opens.
+clearSession();
 $("room-bar").classList.add("hidden");
-$("player-strip")?.classList.add("hidden");
 showScreen("name");

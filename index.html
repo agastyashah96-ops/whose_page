@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Whose Page?</title>
+<title>Whose Page ?</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -11,15 +11,18 @@
 </head>
 <body>
 <div id="app">
+
   <div id="room-bar" class="hidden">
     <span id="room-bar-code" class="code"></span>
-    <button id="btn-leave" class="secondary" type="button">Exit</button>
+    <button id="btn-leave" class="secondary">Exit</button>
   </div>
-  <div id="player-strip" class="player-strip hidden" aria-label="Players and scores"></div>
 
   <!-- NAME + AVATAR -->
   <section id="screen-name" class="screen active">
-    <h1 class="title"><span>Whose Page?</span><span class="title-pencil" aria-hidden="true">✏️</span></h1>
+    <h1 class="title">
+      <span>Whose Page?</span>
+      <span class="title-pencil" aria-hidden="true">✏️</span>
+    </h1>
     <p class="subtitle">Write. Shuffle. Guess who wrote it.</p>
 
     <div class="card">
@@ -27,7 +30,7 @@
 
       <div class="avatar-carousel">
         <button id="avatar-prev" class="arrow-btn" type="button">◀</button>
-        <img id="avatar-preview" class="avatar-preview" src="" alt="avatar">
+        <div id="avatar-preview" class="avatar-preview" role="img" aria-label="Selected avatar"></div>
         <button id="avatar-next" class="arrow-btn" type="button">▶</button>
       </div>
 
@@ -38,7 +41,7 @@
 
   <!-- CREATE OR JOIN -->
   <section id="screen-mode" class="screen">
-    <h2>Hey <span id="mode-name"></span> <img id="mode-avatar" class="avatar-img" alt="avatar"></h2>
+    <h2>Hey <span id="mode-name"></span> <span id="mode-avatar" class="avatar-img" aria-label="avatar"></span></h2>
 
     <div class="card">
       <button id="btn-create">Create Room</button>
@@ -78,10 +81,7 @@
   <!-- WRITING -->
   <section id="screen-writing" class="screen">
     <h2>Round <span id="write-round"></span></h2>
-    <div class="timer-wrap">
-      <div id="write-timer" class="timer">60</div>
-      <span id="write-timer-state" class="timer-state">Writing</span>
-    </div>
+    <div id="write-timer" class="timer">60</div>
     <textarea id="write-text" maxlength="300"
       placeholder="Write anything — a confession, a lie, a weird fact. Someone will have to guess it's you."></textarea>
     <button id="btn-submit-paper">Submit</button>
