@@ -12,6 +12,13 @@
 <body>
 <div id="app">
 
+  <!-- Shared logo: visible on name, create/join and lobby screens; hidden once the game starts -->
+  <header id="site-title">
+    <h1 class="title">
+      <img class="title-gif" src="assets/title.gif" alt="Papers.io" draggable="false">
+    </h1>
+  </header>
+
   <div id="room-bar" class="hidden">
     <span id="room-bar-code" class="code"></span>
     <button id="btn-leave" class="secondary">Exit</button>
@@ -21,9 +28,6 @@
 
   <!-- NAME + AVATAR -->
   <section id="screen-name" class="screen active">
-    <h1 class="title">
-      <img class="title-gif" src="assets/title.gif" alt="Papers.io" draggable="false">
-    </h1>
     <p class="subtitle">Write. Shuffle. Guess who wrote it.</p>
 
     <div class="card">
@@ -117,7 +121,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script type="module" src="js/game.js?v=3"></script>
+<script type="module" src="js/game.js?v=4"></script>
 
 </body>
 </html>
