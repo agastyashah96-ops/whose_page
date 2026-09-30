@@ -1,9 +1,11 @@
 import { supabase } from "./supabaseClient.js";
 import { AVATARS, avatarMarkup } from "./avatars.js";
+import { BUILT_IN_TOPICS } from "./topics.js";
 
 const $ = (id) => document.getElementById(id);
 const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O/1/I
 const MAX_PLAYERS = 8; // room limit
+const MAX_CUSTOM_TOPICS = 10;
 
 // ---------------------------------------------------------------------
 // state
@@ -200,6 +202,7 @@ async function leaveRoom() {
   $("input-code").value = "";
   $("write-text").value = "";
   $("write-status").textContent = "";
+  $("input-topic").value = "";
   showScreen("name");
 }
 
@@ -362,17 +365,111 @@ function renderLobby() {
     ? (state.players.length < 3 ? `Need at least 3 players to start. (${countLabel})` : countLabel)
     : `Waiting for the host to start the game… (${countLabel})`;
   $("btn-start").disabled = state.players.length < 3;
+
+  // Extempore mode controls (host) + note (everyone)
+  const extempore = !!state.room.extempore;
+  $("toggle-extempore").checked = extempore;
+  $("extempore-options").classList.toggle("hidden", !(host && extempore));
+  $("lobby-mode-note").textContent = extempore
+    ? "🎤 Extempore mode: everyone writes on the same topic each round."
+    : "";
+
+  const topicList = $("custom-topic-list");
+  topicList.innerHTML = "";
+  (state.room.custom_topics || []).forEach((topic, index) => {
+    const li = document.createElement("li");
+    li.className = "topic-chip";
+    li.innerHTML = `<span>${escapeHtml(topic)}</span>`;
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.textContent = "✕";
+    remove.setAttribute("aria-label", `Remove topic ${topic}`);
+    remove.onclick = () => removeCustomTopic(index);
+    li.appendChild(remove);
+    topicList.appendChild(li);
+  });
+}
+
+// ---------------------------------------------------------------------
+// EXTEMPORE MODE (host picks it in the lobby)
+// ---------------------------------------------------------------------
+async function toggleExtempore() {
+  const on = $("toggle-extempore").checked;
+  const { error } = await supabase.from("rooms").update({ extempore: on }).eq("id", state.room.id);
+  if (error) {
+    $("toggle-extempore").checked = !on;
+    alert("Could not change Extempore mode: " + error.message);
+  }
+}
+
+async function addCustomTopic() {
+  const input = $("input-topic");
+  const text = input.value.trim().replace(/\s+/g, " ");
+  if (!text) return;
+
+  const list = state.room.custom_topics || [];
+  if (list.length >= MAX_CUSTOM_TOPICS) return setError("topic-error", `Up to ${MAX_CUSTOM_TOPICS} custom topics.`);
+  if (list.some((t) => t.toLowerCase() === text.toLowerCase())) return setError("topic-error", "You already added that one.");
+
+  const next = [...list, text];
+  input.value = "";
+  state.room.custom_topics = next;
+  renderLobby();
+  const { error } = await supabase.from("rooms").update({ custom_topics: next }).eq("id", state.room.id);
+  if (error) setError("topic-error", error.message);
+}
+
+async function removeCustomTopic(index) {
+  const next = (state.room.custom_topics || []).filter((_, i) => i !== index);
+  state.room.custom_topics = next;
+  renderLobby();
+  const { error } = await supabase.from("rooms").update({ custom_topics: next }).eq("id", state.room.id);
+  if (error) setError("topic-error", error.message);
+}
+
+// Custom topics are used first (random order), then the built-in fun ones.
+// Nothing repeats until every topic has been used once.
+function pickTopic(room) {
+  const custom = room.custom_topics || [];
+  let used = room.used_topics || [];
+  const unused = (list) => list.filter((t) => !used.includes(t));
+
+  let pool = unused(custom);
+  if (pool.length === 0) pool = unused(BUILT_IN_TOPICS);
+  if (pool.length === 0) {
+    used = [];
+    pool = custom.length ? custom : BUILT_IN_TOPICS;
+  }
+  const topic = pool[Math.floor(Math.random() * pool.length)];
+  return { topic, used: [...used, topic] };
+}
+
+// shows "Topic: ..." on the guessing / results screens (only in Extempore mode)
+function renderTopicLine(id) {
+  const el = $(id);
+  if (!el) return;
+  const topic = state.room?.extempore ? state.room.topic : null;
+  el.textContent = topic ? `Topic: ${topic}` : "";
+  el.classList.toggle("hidden", !topic);
 }
 
 async function startGame() {
   const seconds = parseInt($("select-seconds").value, 10);
   const endsAt = new Date(Date.now() + seconds * 1000).toISOString();
-  await supabase.from("rooms").update({
+  const update = {
     status: "writing",
     round: 1,
     round_seconds: seconds,
     writing_ends_at: endsAt,
-  }).eq("id", state.room.id).eq("status", "lobby");
+  };
+  if (state.room.extempore) {
+    const { topic, used } = pickTopic({ ...state.room, used_topics: [] });
+    update.topic = topic;
+    update.used_topics = used;
+  }
+  const { error } = await supabase.from("rooms").update(update)
+    .eq("id", state.room.id).eq("status", "lobby");
+  if (error) alert("Could not start the game: " + error.message);
 }
 
 // ---------------------------------------------------------------------
@@ -380,6 +477,14 @@ async function startGame() {
 // ---------------------------------------------------------------------
 function renderWriting() {
   $("write-round").textContent = state.room.round;
+
+  // Extempore mode: show the topic everyone is writing about
+  const topic = state.room.extempore ? state.room.topic : null;
+  $("write-topic").classList.toggle("hidden", !topic);
+  $("write-topic-text").textContent = topic || "";
+  $("write-text").placeholder = topic
+    ? "Write about the topic above — make it good, funny or weird. Someone will have to guess it's you."
+    : "Write anything — a confession, a lie, a weird fact. Someone will have to guess it's you.";
 
   // Only initialize the writing form once per round.
   // Realtime player updates must NEVER erase text currently being typed.
@@ -520,6 +625,7 @@ async function assignPapers() {
 // ---------------------------------------------------------------------
 async function renderGuessing() {
   const seq = ++state.guessRenderSeq;
+  renderTopicLine("guess-topic");
   await renderPlayerStrip();
 
   const { data } = await supabase
@@ -630,6 +736,7 @@ async function renderReveal() {
   await refreshPlayers();
   await renderPlayerStrip();
   $("reveal-round").textContent = state.room.round;
+  renderTopicLine("reveal-topic");
 
   const { data: assignments } = await supabase
     .from("assignments").select("paper_id, assigned_to, guessed_player_id, papers(content, author_id)")
@@ -730,11 +837,19 @@ async function nextRound() {
   state.currentWritingRound = null;
   const seconds = state.room.round_seconds;
   const endsAt = new Date(Date.now() + seconds * 1000).toISOString();
-  await supabase.from("rooms").update({
+  const update = {
     status: "writing",
     round: state.room.round + 1,
     writing_ends_at: endsAt,
-  }).eq("id", state.room.id).eq("status", "reveal");
+  };
+  if (state.room.extempore) {
+    const { topic, used } = pickTopic(state.room);
+    update.topic = topic;
+    update.used_topics = used;
+  }
+  const { error } = await supabase.from("rooms").update(update)
+    .eq("id", state.room.id).eq("status", "reveal");
+  if (error) alert("Could not start the next round: " + error.message);
 }
 
 // ---------------------------------------------------------------------
@@ -753,6 +868,11 @@ $("btn-start").onclick = startGame;
 $("btn-submit-paper").onclick = submitPaper;
 $("btn-next-round").onclick = nextRound;
 $("btn-leave").onclick = leaveRoom;
+$("toggle-extempore").onchange = toggleExtempore;
+$("btn-add-topic").onclick = addCustomTopic;
+$("input-topic").addEventListener("keydown", (event) => {
+  if (event.key === "Enter") addCustomTopic();
+});
 $("reveal-prev").onclick = () => moveReveal(-1);
 $("reveal-next").onclick = () => moveReveal(1);
 
