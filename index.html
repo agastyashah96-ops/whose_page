@@ -102,7 +102,12 @@
   <!-- REVEAL -->
   <section id="screen-reveal" class="screen">
     <h2>Results — Round <span id="reveal-round"></span></h2>
-    <div id="reveal-list"></div>
+    <p id="reveal-counter" class="hint reveal-counter"></p>
+    <div class="reveal-carousel">
+      <button id="reveal-prev" class="arrow-btn" type="button" aria-label="Previous paper">◀</button>
+      <div id="reveal-list"></div>
+      <button id="reveal-next" class="arrow-btn" type="button" aria-label="Next paper">▶</button>
+    </div>
     <div id="scoreboard" class="card"></div>
     <div id="reveal-host-controls" class="hidden">
       <button id="btn-next-round">Next Round</button>
@@ -113,7 +118,8 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script type="module" src="js/game.js?v=2"></script>
+<script type="module" src="js/game.js?v=3"></script>
 
 </body>
 </html>
+
