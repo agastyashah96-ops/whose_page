@@ -35,6 +35,17 @@ body {
   overflow-x: hidden;
 }
 
+/* Background image layer (sits behind the colour glow below) */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: url("../assets/bg.jpg") center / cover no-repeat;
+  opacity: 0.35; /* lower = fainter image, higher = stronger */
+  z-index: -2;
+}
+
 body::before {
   content: "";
   position: fixed;
