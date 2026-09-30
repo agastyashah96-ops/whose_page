@@ -19,6 +19,9 @@ const state = {
   currentWritingRound: null,
   guessRenderSeq: 0,      // guards against overlapping guessing renders
   submittingGuess: false, // blocks double-clicks while a guess is saving
+  revealCards: [],        // one HTML card per paper on the results screen
+  revealIndex: 0,         // which paper is showing
+  revealRound: null,      // round the current results belong to
 };
 
 function showScreen(name) {
@@ -643,13 +646,13 @@ async function renderReveal() {
   const orderOf = (authorId) => state.players.findIndex((p) => p.id === authorId);
   const groups = [...papers.values()].sort((x, y) => orderOf(x.paper.author_id) - orderOf(y.paper.author_id));
 
-  const list = $("reveal-list");
-  list.innerHTML = "";
-  if (groups.length === 0) {
-    list.innerHTML = `<div class="reveal-item">Nobody wrote anything this round.</div>`;
+  // new round of results -> start from the first paper
+  if (state.revealRound !== state.room.round) {
+    state.revealRound = state.room.round;
+    state.revealIndex = 0;
   }
 
-  groups.forEach(({ paper, guesses }) => {
+  state.revealCards = groups.map(({ paper, guesses }) => {
     const author = byId[paper.author_id];
     const lines = guesses.map((a) => {
       const guesser = byId[a.assigned_to];
@@ -659,15 +662,13 @@ async function renderReveal() {
         — <span class="verdict ${correct ? "correct" : "wrong"}">${correct ? "correct!" : "wrong"}</span></div>`;
     }).join("");
 
-    const div = document.createElement("div");
-    div.className = "reveal-item";
-    div.innerHTML = `
+    return `<div class="reveal-item">
       <div class="content">"${escapeHtml(paper.content)}"</div>
       <div>Written by <strong>${avatarMarkup(author?.avatar, "avatar-svg inline-avatar")} ${escapeHtml(author?.name || "Unknown")}</strong></div>
       ${lines}
-    `;
-    list.appendChild(div);
+    </div>`;
   });
+  showRevealPaper();
 
   const board = $("scoreboard");
   board.innerHTML = "<strong>Scoreboard</strong>";
@@ -683,6 +684,41 @@ async function renderReveal() {
   const host = isHost();
   $("reveal-host-controls").classList.toggle("hidden", !host);
   $("reveal-hint").textContent = host ? "" : "Waiting for the host to start the next round…";
+}
+
+// Shows ONE paper's results at a time; the arrows switch between papers.
+function showRevealPaper(animate = false) {
+  const total = state.revealCards.length;
+  const list = $("reveal-list");
+  const prev = $("reveal-prev");
+  const next = $("reveal-next");
+
+  if (total === 0) {
+    list.innerHTML = `<div class="reveal-item">Nobody wrote anything this round.</div>`;
+    $("reveal-counter").textContent = "";
+    prev.classList.add("hidden");
+    next.classList.add("hidden");
+    return;
+  }
+
+  state.revealIndex = Math.min(Math.max(state.revealIndex, 0), total - 1);
+  list.innerHTML = state.revealCards[state.revealIndex];
+  if (animate) {
+    list.classList.remove("swap");
+    void list.offsetWidth;
+    list.classList.add("swap");
+  }
+
+  $("reveal-counter").textContent = `Paper ${state.revealIndex + 1} of ${total}`;
+  prev.classList.remove("hidden");
+  next.classList.remove("hidden");
+  prev.disabled = state.revealIndex === 0;
+  next.disabled = state.revealIndex === total - 1;
+}
+
+function moveReveal(direction) {
+  state.revealIndex += direction;
+  showRevealPaper(true);
 }
 
 async function nextRound() {
@@ -712,6 +748,15 @@ $("btn-start").onclick = startGame;
 $("btn-submit-paper").onclick = submitPaper;
 $("btn-next-round").onclick = nextRound;
 $("btn-leave").onclick = leaveRoom;
+$("reveal-prev").onclick = () => moveReveal(-1);
+$("reveal-next").onclick = () => moveReveal(1);
+
+// left/right arrow keys also flip through the results
+document.addEventListener("keydown", (event) => {
+  if (!$("screen-reveal").classList.contains("active")) return;
+  if (event.key === "ArrowLeft" && !$("reveal-prev").disabled) moveReveal(-1);
+  if (event.key === "ArrowRight" && !$("reveal-next").disabled) moveReveal(1);
+});
 
 $("input-name").addEventListener("keydown", (event) => {
   if (event.key === "Enter") continueFromName();
