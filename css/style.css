@@ -554,9 +554,9 @@ button.secondary:hover {
   max-width: 760px;
   margin: 0 auto 16px;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
-  gap: 10px;
-  padding: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr)); /* 8 players = 2 rows, always */
+  gap: 8px;
+  padding: 8px;
   border: 1px solid rgba(255, 255, 255, .10);
   border-radius: 18px;
   background: rgba(18, 15, 31, .58);
@@ -570,9 +570,9 @@ button.secondary:hover {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 7px;
+  gap: 5px;
   min-width: 0;
-  padding: 16px 8px 11px;
+  padding: 12px 4px 8px;
   border: 1px solid rgba(255, 255, 255, .08);
   border-radius: 14px;
   background: rgba(9, 7, 18, .42);
@@ -591,8 +591,8 @@ button.secondary:hover {
 }
 
 .player-tab-avatar {
-  width: 56px;
-  height: 56px;
+  width: 46px;
+  height: 46px;
   display: grid;
   place-items: center;
   border-radius: 50%;
@@ -621,16 +621,17 @@ button.secondary:hover {
   -webkit-box-orient: vertical;
   overflow: hidden;
   overflow-wrap: anywhere;
-  font-size: .9rem;
+  min-height: 2.4em; /* always reserve 2 lines so every card is the same height */
+  font-size: .76rem;
   font-weight: 800;
   line-height: 1.2;
   color: var(--text);
 }
 
 .player-tab-status {
-  margin-top: 4px;
+  margin-top: 3px;
   color: var(--muted);
-  font-size: .72rem;
+  font-size: .66rem;
   font-weight: 600;
   white-space: nowrap;
 }
@@ -655,15 +656,15 @@ button.secondary:hover {
 
 .player-tab-score {
   position: absolute;
-  top: 7px;
-  right: 7px;
-  min-width: 24px;
+  top: 5px;
+  right: 5px;
+  min-width: 20px;
   text-align: center;
-  padding: 2px 7px;
+  padding: 1px 6px;
   border-radius: 999px;
   background: rgba(110, 231, 255, .14);
   color: var(--accent2);
-  font-size: .75rem;
+  font-size: .68rem;
   font-weight: 800;
 }
 
@@ -708,6 +709,12 @@ button.secondary:hover {
   display: grid;
   place-items: center;
   font-size: 1.4rem;
+}
+
+@media (min-width: 640px) {
+  #player-strip {
+    grid-template-columns: repeat(8, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 520px) {
