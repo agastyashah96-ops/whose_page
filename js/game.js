@@ -17,6 +17,8 @@ const state = {
   timerHandle: null,
   guessTarget: null,  // {assignment, paper, players}
   currentWritingRound: null,
+  guessRenderSeq: 0,      // guards against overlapping guessing renders
+  submittingGuess: false, // blocks double-clicks while a guess is saving
 };
 
 function showScreen(name) {
@@ -214,6 +216,7 @@ async function renderPlayerStrip() {
   if (!show) return;
 
   let doneIds = new Set();
+  const progress = {}; // playerId -> { total, answered } (guessing phase)
 
   if (status === "writing") {
     const { data: papers } = await supabase.from("papers")
@@ -222,9 +225,15 @@ async function renderPlayerStrip() {
   } else if (status === "guessing") {
     const { data: assignments } = await supabase.from("assignments")
       .select("assigned_to, guessed_player_id").eq("room_id", state.room.id).eq("round", state.room.round);
-    doneIds = new Set((assignments || [])
-      .filter((a) => a.guessed_player_id !== null)
-      .map((a) => a.assigned_to));
+    (assignments || []).forEach((a) => {
+      const pr = (progress[a.assigned_to] ||= { total: 0, answered: 0 });
+      pr.total++;
+      if (a.guessed_player_id !== null) pr.answered++;
+    });
+    // a player is done once every paper they were given has a guess
+    doneIds = new Set(state.players
+      .filter((pl) => { const pr = progress[pl.id]; return !pr || pr.answered >= pr.total; })
+      .map((pl) => pl.id));
   } else {
     doneIds = new Set(state.players.map((p) => p.id));
   }
@@ -241,7 +250,7 @@ async function renderPlayerStrip() {
 
     const statusLabel =
       status === "writing" ? (done ? "Done" : "Writing…") :
-      status === "guessing" ? (done ? "Done" : "Guessing…") :
+      status === "guessing" ? (done ? "Done" : `${progress[p.id]?.answered ?? 0}/${progress[p.id]?.total ?? 0}`) :
       "Done";
 
     card.innerHTML = `
@@ -441,9 +450,10 @@ async function claimAndDistribute() {
   if (!claimed || claimed.length === 0) return; // someone else already claimed it
 
   await backfillMissingPapers();
-  await assignPapers();
+  const made = await assignPapers();
 
-  await supabase.from("rooms").update({ status: "guessing" }).eq("id", state.room.id);
+  // if there was nothing to guess (nobody wrote anything), skip straight to results
+  await supabase.from("rooms").update({ status: made > 0 ? "guessing" : "reveal" }).eq("id", state.room.id);
 }
 
 async function backfillMissingPapers() {
@@ -464,86 +474,100 @@ async function backfillMissingPapers() {
   );
 }
 
-// derangement: every paper goes to someone who didn't write it
-function buildDerangement(players, papers) {
-  const n = players.length;
-  for (let attempt = 0; attempt < 300; attempt++) {
-    const order = shuffle(papers);
-    if (order.every((paper, i) => paper.author_id !== players[i].id)) {
-      return players.map((p, i) => ({ assigned_to: p.id, paper_id: order[i].id }));
-    }
-  }
-  // fallback: fix remaining conflicts by swapping with the next slot
-  const order = shuffle(papers);
-  for (let i = 0; i < n; i++) {
-    if (order[i].author_id === players[i].id) {
-      const j = (i + 1) % n;
-      [order[i], order[j]] = [order[j], order[i]];
-    }
-  }
-  return players.map((p, i) => ({ assigned_to: p.id, paper_id: order[i].id }));
-}
-
+// Every player gets EVERY paper except their own.
+// One assignment row = one (paper, guesser) pair, so with n players there
+// are n x (n-1) rows. Papers nobody really wrote (auto-filled) are skipped.
 async function assignPapers() {
   await refreshPlayers();
   const { data: papers } = await supabase
     .from("papers").select().eq("room_id", state.room.id).eq("round", state.room.round);
 
-  const rows = buildDerangement(shuffle(state.players), papers).map((r) => ({
-    room_id: state.room.id,
-    round: state.room.round,
-    paper_id: r.paper_id,
-    assigned_to: r.assigned_to,
-  }));
-  await supabase.from("assignments").insert(rows);
+  const realPapers = (papers || []).filter((p) => !p.auto_filled);
+  const rows = [];
+  realPapers.forEach((paper) => {
+    state.players.forEach((player) => {
+      if (player.id === paper.author_id) return; // never guess your own paper
+      rows.push({
+        room_id: state.room.id,
+        round: state.room.round,
+        paper_id: paper.id,
+        assigned_to: player.id,
+      });
+    });
+  });
+
+  if (rows.length > 0) await supabase.from("assignments").insert(rows);
+  return rows.length;
 }
 
 // ---------------------------------------------------------------------
-// GUESSING
+// GUESSING  (one paper at a time, until every other paper has a guess)
 // ---------------------------------------------------------------------
 async function renderGuessing() {
+  const seq = ++state.guessRenderSeq;
   await renderPlayerStrip();
-  const { data: assignment } = await supabase
-    .from("assignments").select()
+
+  const { data } = await supabase
+    .from("assignments").select("id, guessed_player_id, papers(content)")
     .eq("room_id", state.room.id).eq("round", state.room.round).eq("assigned_to", state.playerId)
-    .maybeSingle();
-  if (!assignment) return;
+    .order("id");
+  if (seq !== state.guessRenderSeq) return; // a newer render took over
 
-  const { data: paper } = await supabase.from("papers").select().eq("id", assignment.paper_id).single();
-
-  $("guess-paper-text").textContent = paper.content;
+  const mine = data || [];
+  const total = mine.length;
+  const answered = mine.filter((a) => a.guessed_player_id !== null).length;
+  const current = mine.find((a) => a.guessed_player_id === null);
 
   const grid = $("guess-player-grid");
   grid.innerHTML = "";
-  const already = !!assignment.guessed_player_id;
+
+  if (total === 0) {
+    $("guess-progress").textContent = "";
+    $("guess-paper-text").textContent = "There's nothing for you to guess this round.";
+    $("guess-status").textContent = "Waiting for everyone else…";
+    return;
+  }
+
+  if (!current) {
+    $("guess-progress").textContent = `${total} of ${total} guessed`;
+    $("guess-paper-text").textContent = "All your guesses are locked in. 🔒";
+    $("guess-status").textContent = "Waiting for everyone else…";
+    return;
+  }
+
+  $("guess-progress").textContent = `Paper ${answered + 1} of ${total}`;
+  $("guess-paper-text").textContent = current.papers.content;
+  $("guess-status").textContent = "Who wrote this paper? Tap a player.";
 
   state.players
     .filter((p) => p.id !== state.playerId)
     .forEach((p) => {
       const card = document.createElement("div");
-      card.className = "player-card" + (assignment.guessed_player_id === p.id ? " picked" : "");
+      card.className = "player-card";
       card.innerHTML = `${avatarMarkup(p.avatar, "avatar-svg guess-avatar")} ${escapeHtml(p.name)}`;
-      if (!already) {
-        card.onclick = () => submitGuess(assignment.id, p.id);
-      }
+      card.onclick = () => submitGuess(current.id, p.id);
       grid.appendChild(card);
     });
-
-  $("guess-status").textContent = already
-    ? "Guess locked in. Waiting for everyone else…"
-    : "Tap who you think wrote this.";
 }
 
 async function submitGuess(assignmentId, guessedPlayerId) {
-  await supabase
-    .from("assignments")
-    .update({ guessed_player_id: guessedPlayerId })
-    .eq("id", assignmentId)
-    .is("guessed_player_id", null); // only the first click sticks
-  await maybeAutoAdvanceGuessing();
+  if (state.submittingGuess) return;
+  state.submittingGuess = true;
+  try {
+    await supabase
+      .from("assignments")
+      .update({ guessed_player_id: guessedPlayerId })
+      .eq("id", assignmentId)
+      .is("guessed_player_id", null); // only the first click sticks
+    await renderGuessing(); // move on to my next paper right away
+    await maybeAutoAdvanceGuessing();
+  } finally {
+    state.submittingGuess = false;
+  }
 }
 
 async function maybeAutoAdvanceGuessing() {
+  if (state.room?.status !== "guessing") return;
   const { data: assignments } = await supabase
     .from("assignments").select("guessed_player_id")
     .eq("room_id", state.room.id).eq("round", state.room.round);
@@ -554,6 +578,7 @@ async function maybeAutoAdvanceGuessing() {
 
 // ---------------------------------------------------------------------
 // REVEAL + scoring (also race-safe via conditional status update)
+// 1 point for every correct guess.
 // ---------------------------------------------------------------------
 async function claimAndReveal() {
   const { data: claimed } = await supabase
@@ -564,16 +589,23 @@ async function claimAndReveal() {
     .select();
   if (!claimed || claimed.length === 0) return;
 
+  await refreshPlayers(); // make sure we add to the latest scores
+
   const { data: assignments } = await supabase
-    .from("assignments").select("*, papers(author_id)")
+    .from("assignments").select("assigned_to, guessed_player_id, papers(author_id)")
     .eq("room_id", state.room.id).eq("round", state.room.round);
 
-  for (const a of assignments) {
+  // add up correct guesses per player first, then update each player ONCE
+  const gained = {};
+  (assignments || []).forEach((a) => {
     if (a.guessed_player_id === a.papers.author_id) {
-      const player = state.players.find((p) => p.id === a.assigned_to);
-      const newScore = (player?.score || 0) + 1;
-      await supabase.from("players").update({ score: newScore }).eq("id", a.assigned_to);
+      gained[a.assigned_to] = (gained[a.assigned_to] || 0) + 1;
     }
+  });
+
+  for (const [playerId, points] of Object.entries(gained)) {
+    const player = state.players.find((p) => p.id === playerId);
+    await supabase.from("players").update({ score: (player?.score || 0) + points }).eq("id", playerId);
   }
 
   await supabase.from("rooms").update({ status: "reveal" }).eq("id", state.room.id);
@@ -585,34 +617,59 @@ async function renderReveal() {
   $("reveal-round").textContent = state.room.round;
 
   const { data: assignments } = await supabase
-    .from("assignments").select("*, papers(content, author_id)")
+    .from("assignments").select("paper_id, assigned_to, guessed_player_id, papers(content, author_id)")
     .eq("room_id", state.room.id).eq("round", state.room.round);
 
   const byId = Object.fromEntries(state.players.map((p) => [p.id, p]));
+
+  // group guesses by paper, and count each player's correct guesses this round
+  const papers = new Map();
+  const roundPoints = {};
+  (assignments || []).forEach((a) => {
+    if (!papers.has(a.paper_id)) papers.set(a.paper_id, { paper: a.papers, guesses: [] });
+    papers.get(a.paper_id).guesses.push(a);
+    if (a.guessed_player_id === a.papers.author_id) {
+      roundPoints[a.assigned_to] = (roundPoints[a.assigned_to] || 0) + 1;
+    }
+  });
+
+  const orderOf = (authorId) => state.players.findIndex((p) => p.id === authorId);
+  const groups = [...papers.values()].sort((x, y) => orderOf(x.paper.author_id) - orderOf(y.paper.author_id));
+
   const list = $("reveal-list");
   list.innerHTML = "";
-  (assignments || []).forEach((a) => {
-    const author = byId[a.papers.author_id];
-    const guesser = byId[a.assigned_to];
-    const guessed = byId[a.guessed_player_id];
-    const correct = a.guessed_player_id === a.papers.author_id;
+  if (groups.length === 0) {
+    list.innerHTML = `<div class="reveal-item">Nobody wrote anything this round.</div>`;
+  }
+
+  groups.forEach(({ paper, guesses }) => {
+    const author = byId[paper.author_id];
+    const lines = guesses.map((a) => {
+      const guesser = byId[a.assigned_to];
+      const guessed = byId[a.guessed_player_id];
+      const correct = a.guessed_player_id === paper.author_id;
+      return `<div class="guess-line">${avatarMarkup(guesser?.avatar, "avatar-svg inline-avatar")} ${escapeHtml(guesser?.name || "Unknown")} guessed <strong>${avatarMarkup(guessed?.avatar, "avatar-svg inline-avatar")} ${escapeHtml(guessed?.name || "—")}</strong>
+        — <span class="verdict ${correct ? "correct" : "wrong"}">${correct ? "correct!" : "wrong"}</span></div>`;
+    }).join("");
+
     const div = document.createElement("div");
     div.className = "reveal-item";
     div.innerHTML = `
-      <div class="content">"${a.papers.content}"</div>
+      <div class="content">"${escapeHtml(paper.content)}"</div>
       <div>Written by <strong>${avatarMarkup(author?.avatar, "avatar-svg inline-avatar")} ${escapeHtml(author?.name || "Unknown")}</strong></div>
-      <div>${avatarMarkup(guesser?.avatar, "avatar-svg inline-avatar")} ${escapeHtml(guesser?.name || "Unknown")} guessed <strong>${avatarMarkup(guessed?.avatar, "avatar-svg inline-avatar")} ${escapeHtml(guessed?.name || "—")}</strong>
-        — <span class="verdict ${correct ? "correct" : "wrong"}">${correct ? "correct!" : "wrong"}</span></div>
+      ${lines}
     `;
     list.appendChild(div);
   });
 
   const board = $("scoreboard");
   board.innerHTML = "<strong>Scoreboard</strong>";
-  [...state.players].sort((a, b) => b.score - a.score).forEach((p) => {
+  [...state.players].sort((a, b) => (b.score || 0) - (a.score || 0)).forEach((p) => {
+    const gain = roundPoints[p.id] || 0;
     const row = document.createElement("div");
     row.className = "score-row";
-    row.innerHTML = `<span>${avatarMarkup(p.avatar, "avatar-svg inline-avatar")} ${escapeHtml(p.name)}</span><span>${p.score}</span>`;
+    row.innerHTML = `<span>${avatarMarkup(p.avatar, "avatar-svg inline-avatar")} ${escapeHtml(p.name)}</span>
+      <span>${gain ? `<span class="round-gain">+${gain}</span> ` : ""}${p.score || 0}</span>`;
     board.appendChild(row);
   });
 
