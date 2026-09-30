@@ -3,6 +3,7 @@ import { AVATARS, avatarMarkup } from "./avatars.js";
 
 const $ = (id) => document.getElementById(id);
 const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O/1/I
+const MAX_PLAYERS = 8; // room limit
 
 // ---------------------------------------------------------------------
 // state
@@ -118,6 +119,12 @@ async function joinRoom() {
   const { data: room, error } = await supabase.from("rooms").select().eq("code", code).maybeSingle();
   if (error || !room) return setError("name-error", "Room not found.");
   if (room.status !== "lobby") return setError("name-error", "That game already started.");
+
+  const { count } = await supabase
+    .from("players")
+    .select("id", { count: "exact", head: true })
+    .eq("room_id", room.id);
+  if ((count ?? 0) >= MAX_PLAYERS) return setError("name-error", `Room is full (max ${MAX_PLAYERS} players).`);
 
   const { data: player, error: pErr } = await supabase
     .from("players")
@@ -333,9 +340,10 @@ function renderLobby() {
 
   const host = isHost();
   $("lobby-host-controls").classList.toggle("hidden", !host);
+  const countLabel = `${state.players.length}/${MAX_PLAYERS} players`;
   $("lobby-hint").textContent = host
-    ? (state.players.length < 3 ? "Need at least 3 players to start." : "")
-    : "Waiting for the host to start the game…";
+    ? (state.players.length < 3 ? `Need at least 3 players to start. (${countLabel})` : countLabel)
+    : `Waiting for the host to start the game… (${countLabel})`;
   $("btn-start").disabled = state.players.length < 3;
 }
 
