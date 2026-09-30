@@ -496,7 +496,14 @@ async function assignPapers() {
     });
   });
 
-  if (rows.length > 0) await supabase.from("assignments").insert(rows);
+  if (rows.length > 0) {
+    const { error } = await supabase.from("assignments").insert(rows);
+    if (error) {
+      console.error("Could not create assignments:", error);
+      alert("Could not deal the papers: " + error.message);
+      return 0;
+    }
+  }
   return rows.length;
 }
 
