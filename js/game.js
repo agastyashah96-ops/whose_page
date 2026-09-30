@@ -24,9 +24,14 @@ const state = {
   revealRound: null,      // round the current results belong to
 };
 
+// The logo stays up through the name, create/join and lobby screens,
+// and disappears once the game actually starts (writing/guessing/reveal).
+const TITLE_SCREENS = ["name", "mode", "lobby"];
+
 function showScreen(name) {
   document.querySelectorAll(".screen").forEach((s) => s.classList.remove("active"));
   $(`screen-${name}`).classList.add("active");
+  $("site-title").classList.toggle("hidden", !TITLE_SCREENS.includes(name));
 }
 
 function randomCode(len = 5) {
@@ -332,7 +337,7 @@ function renderForStatus() {
     case "writing": renderWriting(); showScreen("writing"); break;
     case "guessing": renderGuessing(); showScreen("guessing"); break;
     case "reveal": renderReveal(); showScreen("reveal"); break;
-    default: showScreen("lobby");
+    default: break; // short in-between statuses: stay on the current screen
   }
 }
 
