@@ -124,6 +124,15 @@ body::before {
   text-shadow: 0 8px 35px rgba(0, 0, 0, 0.32);
 }
 
+.title-gif {
+  display: block;
+  width: min(100%, 400px);
+  height: auto;
+  margin: 0 auto 4px;
+  user-select: none;
+  filter: drop-shadow(0 8px 24px rgba(0, 0, 0, .35));
+}
+
 .title-pencil {
   display: inline-block;
   font-size: .78em;
