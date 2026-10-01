@@ -1085,3 +1085,43 @@ input.switch:focus {
   border-radius: 50%;
   overflow: hidden;
 }
+
+.lobby-players li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.lobby-player-info {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.kick-player {
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  border: 1px solid rgba(255, 100, 100, .25);
+  border-radius: 8px;
+  background: rgba(255, 70, 70, .08);
+  color: #ff8b8b;
+  font-size: .72rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    background .15s ease,
+    border-color .15s ease,
+    opacity .15s ease;
+}
+
+.kick-player:hover {
+  background: rgba(255, 70, 70, .16);
+  border-color: rgba(255, 100, 100, .45);
+}
+
+.kick-player:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
