@@ -33,6 +33,7 @@ let leavingRoom = false;
 let startingGame = false;
 let submittingPaper = false;
 let startingNextRound = false;
+let kickingPlayer = false;
 let initialized = false;
 
 // ---------------------------------------------------------------------
@@ -121,7 +122,6 @@ function setError(id, msg) {
 }
 
 // Safe event binding.
-// Missing elements won't crash the whole game.
 function bindClick(id, handler) {
   const el = $(id);
 
@@ -233,8 +233,7 @@ async function createRoom() {
     button.classList.add("loading");
 
     if (!button.dataset.originalText) {
-      button.dataset.originalText =
-        button.textContent;
+      button.dataset.originalText = button.textContent;
     }
 
     button.textContent = "Creating...";
@@ -280,10 +279,7 @@ async function createRoom() {
       .single();
 
     if (error) {
-      setError(
-        "name-error",
-        error.message
-      );
+      setError("name-error", error.message);
       return;
     }
 
@@ -302,10 +298,7 @@ async function createRoom() {
       .single();
 
     if (pErr) {
-      setError(
-        "name-error",
-        pErr.message
-      );
+      setError("name-error", pErr.message);
       return;
     }
 
@@ -355,8 +348,7 @@ async function joinRoom() {
     button.classList.add("loading");
 
     if (!button.dataset.originalText) {
-      button.dataset.originalText =
-        button.textContent;
+      button.dataset.originalText = button.textContent;
     }
 
     button.textContent = "Joining...";
@@ -370,13 +362,11 @@ async function joinRoom() {
       return;
     }
 
-    const name =
-      nameInput.value.trim();
+    const name = nameInput.value.trim();
 
-    const code =
-      codeInput.value
-        .trim()
-        .toUpperCase();
+    const code = codeInput.value
+      .trim()
+      .toUpperCase();
 
     if (!name) {
       setError(
@@ -521,9 +511,7 @@ async function enterRoom(
 
   subscribeRealtime(roomId);
 
-  $("room-bar")?.classList.remove(
-    "hidden"
-  );
+  $("room-bar")?.classList.remove("hidden");
 
   if ($("room-bar-code")) {
     $("room-bar-code").textContent =
@@ -544,9 +532,7 @@ async function leaveRoom() {
   leavingRoom = true;
 
   try {
-    clearInterval(
-      state.timerHandle
-    );
+    clearInterval(state.timerHandle);
 
     state.timerHandle = null;
 
@@ -601,13 +587,9 @@ async function leaveRoom() {
     state.revealIndex = 0;
     state.revealRound = null;
 
-    $("room-bar")?.classList.add(
-      "hidden"
-    );
+    $("room-bar")?.classList.add("hidden");
 
-    $("player-strip")?.classList.add(
-      "hidden"
-    );
+    $("player-strip")?.classList.add("hidden");
 
     if ($("player-strip")) {
       $("player-strip").innerHTML = "";
@@ -663,14 +645,12 @@ async function refreshPlayers() {
     .order("joined_at");
 
   if (!error) {
-    state.players =
-      data || [];
+    state.players = data || [];
   }
 }
 
 async function renderPlayerStrip() {
-  const strip =
-    $("player-strip");
+  const strip = $("player-strip");
 
   if (
     !strip ||
@@ -680,8 +660,7 @@ async function renderPlayerStrip() {
     return;
   }
 
-  const status =
-    state.room.status;
+  const status = state.room.status;
 
   const show = [
     "writing",
@@ -696,9 +675,7 @@ async function renderPlayerStrip() {
 
   if (!show) return;
 
-  let doneIds =
-    new Set();
-
+  let doneIds = new Set();
   const progress = {};
 
   if (status === "writing") {
@@ -720,9 +697,7 @@ async function renderPlayerStrip() {
         (p) => p.author_id
       )
     );
-  } else if (
-    status === "guessing"
-  ) {
+  } else if (status === "guessing") {
     const {
       data: assignments,
     } = await supabase
@@ -739,13 +714,9 @@ async function renderPlayerStrip() {
         state.room.round
       );
 
-    (
-      assignments || []
-    ).forEach((a) => {
+    (assignments || []).forEach((a) => {
       const pr =
-        (progress[
-          a.assigned_to
-        ] ||= {
+        (progress[a.assigned_to] ||= {
           total: 0,
           answered: 0,
         });
@@ -786,87 +757,65 @@ async function renderPlayerStrip() {
 
   strip.innerHTML = "";
 
-  state.players.forEach(
-    (p) => {
-      const card =
-        document.createElement(
-          "div"
-        );
+  state.players.forEach((p) => {
+    const card =
+      document.createElement("div");
 
-      const done =
-        doneIds.has(p.id);
+    const done =
+      doneIds.has(p.id);
 
-      const me =
-        p.id ===
-        state.playerId;
+    const me =
+      p.id === state.playerId;
 
-      card.className =
-        `player-tab${
-          done ? " done" : ""
-        }${
-          me ? " me" : ""
-        }`;
+    card.className =
+      `player-tab${done ? " done" : ""}${me ? " me" : ""}`;
 
-      card.title =
-        `${p.name} · ${
-          p.score ?? 0
-        } point${
-          p.score === 1
-            ? ""
-            : "s"
-        }`;
+    card.title =
+      `${p.name} · ${p.score ?? 0} point${
+        p.score === 1 ? "" : "s"
+      }`;
 
-      const statusLabel =
-        status === "writing"
+    const statusLabel =
+      status === "writing"
+        ? done
+          ? "Done"
+          : "Writing…"
+        : status === "guessing"
           ? done
             ? "Done"
-            : "Writing…"
-          : status ===
-              "guessing"
-            ? done
-              ? "Done"
-              : `${
-                  progress[
-                    p.id
-                  ]?.answered ??
-                  0
-                }/${
-                  progress[
-                    p.id
-                  ]?.total ??
-                  0
-                }`
-            : "Done";
+            : `${
+                progress[p.id]?.answered ?? 0
+              }/${
+                progress[p.id]?.total ?? 0
+              }`
+          : "Done";
 
-      card.innerHTML = `
-        <div class="player-tab-avatar">
-          ${avatarMarkup(
-            p.avatar,
-            "avatar-svg"
-          )}
+    card.innerHTML = `
+      <div class="player-tab-avatar">
+        ${avatarMarkup(
+          p.avatar,
+          "avatar-svg"
+        )}
+      </div>
+
+      <div class="player-tab-info">
+        <div class="player-tab-name">
+          ${escapeHtml(p.name)}
         </div>
 
-        <div class="player-tab-info">
-          <div class="player-tab-name">
-            ${escapeHtml(
-              p.name
-            )}
-          </div>
-
-          <div class="player-tab-status">
-            <span class="player-status-dot"></span>
-            ${statusLabel}
-          </div>
+        <div class="player-tab-status">
+          <span class="player-status-dot"></span>
+          ${statusLabel}
         </div>
+      </div>
 
-        <div class="player-tab-score">
-          ${p.score ?? 0}
-        </div>
-      `;
+      <div class="player-tab-score">
+        ${p.score ?? 0}
+      </div>
+    `;
 
-      strip.appendChild(card);
-    }
-  );
+    strip.appendChild(card);
+  });
 }
 
 // ---------------------------------------------------------------------
@@ -881,9 +830,7 @@ function subscribeRealtime(roomId) {
 
   state.channel =
     supabase
-      .channel(
-        `room-${roomId}`
-      )
+      .channel(`room-${roomId}`)
 
       // ROOMS
       .on(
@@ -901,12 +848,10 @@ function subscribeRealtime(roomId) {
           const previousRound =
             state.room?.round;
 
-          state.room =
-            payload.new;
+          state.room = payload.new;
 
-          // IMPORTANT:
-          // Never rebuild the writing form
-          // while the player is typing.
+          // Never rebuild writing form
+          // while player is typing.
           if (
             state.room.status ===
               "writing" &&
@@ -935,7 +880,9 @@ function subscribeRealtime(roomId) {
           filter: `room_id=eq.${roomId}`,
         },
         async (payload) => {
-          // Detect local player deletion.
+          // ---------------------------------------------------------
+          // KICK DETECTION
+          // ---------------------------------------------------------
           if (
             payload.eventType ===
               "DELETE" &&
@@ -1058,6 +1005,112 @@ function renderForStatus() {
 }
 
 // ---------------------------------------------------------------------
+// KICK PLAYER
+// ---------------------------------------------------------------------
+async function kickPlayer(playerId) {
+  if (kickingPlayer) return;
+
+  if (!state.room || !state.playerId) {
+    return;
+  }
+
+  if (!isHost()) {
+    alert("Only the host can kick players.");
+    return;
+  }
+
+  if (playerId === state.playerId) {
+    alert("You cannot kick yourself.");
+    return;
+  }
+
+  const player =
+    state.players.find(
+      (p) =>
+        p.id === playerId
+    );
+
+  if (!player) {
+    return;
+  }
+
+  const confirmed = confirm(
+    `Kick ${player.name} from the room?`
+  );
+
+  if (!confirmed) {
+    return;
+  }
+
+  kickingPlayer = true;
+
+  const button =
+    document.querySelector(
+      `.kick-player[data-player-id="${playerId}"]`
+    );
+
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Kicking...";
+  }
+
+  try {
+    const {
+      error,
+    } = await supabase
+      .from("players")
+      .delete()
+      .eq(
+        "id",
+        playerId
+      )
+      .eq(
+        "room_id",
+        state.room.id
+      );
+
+    if (error) {
+      console.error(
+        "Kick player error:",
+        error
+      );
+
+      alert(
+        "Could not kick the player: " +
+          error.message
+      );
+
+      if (button) {
+        button.disabled = false;
+        button.textContent = "Kick";
+      }
+
+      return;
+    }
+
+    await refreshPlayers();
+
+    renderLobby();
+  } catch (error) {
+    console.error(
+      "Kick player error:",
+      error
+    );
+
+    alert(
+      "Could not kick the player."
+    );
+
+    if (button) {
+      button.disabled = false;
+      button.textContent = "Kick";
+    }
+  } finally {
+    kickingPlayer = false;
+  }
+}
+
+// ---------------------------------------------------------------------
 // LOBBY
 // ---------------------------------------------------------------------
 function renderLobby() {
@@ -1071,37 +1124,68 @@ function renderLobby() {
   const list =
     $("lobby-players");
 
+  const host =
+    isHost();
+
   if (list) {
     list.innerHTML = "";
 
-    state.players.forEach(
-      (p) => {
-        const li =
-          document.createElement(
-            "li"
-          );
+    state.players.forEach((p) => {
+      const li =
+        document.createElement("li");
 
-        li.innerHTML =
-          `${avatarMarkup(
+      li.innerHTML = `
+        <div class="lobby-player-info">
+
+          ${avatarMarkup(
             p.avatar,
             "avatar-svg lobby-avatar"
           )}
+
           <span>
-            ${escapeHtml(
-              p.name
-            )}
-          </span>` +
-          (p.is_host
-            ? `<span class="host-tag">HOST</span>`
-            : "");
+            ${escapeHtml(p.name)}
+          </span>
 
-        list.appendChild(li);
+          ${
+            p.is_host
+              ? `<span class="host-tag">HOST</span>`
+              : ""
+          }
+
+        </div>
+
+        ${
+          host &&
+          p.id !== state.playerId
+            ? `
+              <button
+                type="button"
+                class="kick-player"
+                data-player-id="${p.id}"
+              >
+                Kick
+              </button>
+            `
+            : ""
+        }
+      `;
+
+      list.appendChild(li);
+
+      // Bind this specific kick button.
+      const kickButton =
+        li.querySelector(
+          ".kick-player"
+        );
+
+      if (kickButton) {
+        kickButton.onclick = () =>
+          kickPlayer(
+            p.id
+          );
       }
-    );
+    });
   }
-
-  const host =
-    isHost();
 
   $("lobby-host-controls")
     ?.classList.toggle(
@@ -1156,8 +1240,7 @@ function renderLobby() {
     topicList.innerHTML = "";
 
     (
-      state.room
-        .custom_topics || []
+      state.room.custom_topics || []
     ).forEach(
       (topic, index) => {
         const li =
@@ -1182,8 +1265,7 @@ function renderLobby() {
           );
 
         remove.type = "button";
-        remove.textContent =
-          "✕";
+        remove.textContent = "✕";
 
         remove.setAttribute(
           "aria-label",
@@ -1198,9 +1280,7 @@ function renderLobby() {
         li.appendChild(span);
         li.appendChild(remove);
 
-        topicList.appendChild(
-          li
-        );
+        topicList.appendChild(li);
       }
     );
   }
@@ -1336,8 +1416,8 @@ async function removeCustomTopic(
 
   const next =
     (
-      state.room
-        .custom_topics || []
+      state.room.custom_topics ||
+      []
     ).filter(
       (_, i) => i !== index
     );
@@ -1587,7 +1667,6 @@ function renderWriting() {
   }
 
   // DO NOT RESET THE TEXTAREA
-  // when realtime events arrive.
   if (
     state.currentWritingRound ===
     state.room.round
@@ -1670,9 +1749,7 @@ function startCountdown(
           true;
       }
 
-      if (
-        $("btn-submit-paper")
-      ) {
+      if ($("btn-submit-paper")) {
         $("btn-submit-paper").disabled =
           true;
       }
@@ -1755,7 +1832,9 @@ async function submitPaper() {
 
     if ($("write-status")) {
       $("write-status").textContent =
-        "Submitted. Waiting for others…";
+        error
+          ? "Could not submit. Try again."
+          : "Submitted. Waiting for others…";
     }
 
     if (!error) {
@@ -2666,13 +2745,8 @@ function showRevealPaper(
         "";
     }
 
-    prev.classList.add(
-      "hidden"
-    );
-
-    next.classList.add(
-      "hidden"
-    );
+    prev.classList.add("hidden");
+    next.classList.add("hidden");
 
     return;
   }
@@ -2849,9 +2923,7 @@ async function nextRound() {
 // STARTUP LOADER
 // =====================================================================
 
-function setLoaderStatus(
-  text
-) {
+function setLoaderStatus(text) {
   const status =
     $("startup-status");
 
@@ -2861,10 +2933,7 @@ function setLoaderStatus(
   }
 }
 
-function setLoaderProgress(
-  percent
-) {
-  // Clamp between 0 and 100.
+function setLoaderProgress(percent) {
   percent = Math.max(
     0,
     Math.min(
@@ -2885,9 +2954,8 @@ function setLoaderProgress(
     bar.style.width =
       `${percent}%`;
 
-    // Helps the browser paint immediately.
     bar.style.transform =
-      `translateZ(0)`;
+      "translateZ(0)";
   }
 
   if (text) {
@@ -2895,15 +2963,12 @@ function setLoaderProgress(
       `${percent}%`;
   }
 
-  // Force layout so progress isn't visually delayed.
   if (bar) {
     void bar.offsetWidth;
   }
 }
 
-function preloadImage(
-  src
-) {
+function preloadImage(src) {
   return new Promise(
     (resolve) => {
       const img =
@@ -2927,8 +2992,6 @@ function preloadImage(
 
       img.src = src;
 
-      // Never let one broken asset
-      // freeze the entire startup screen.
       setTimeout(
         () => done(false),
         3000
@@ -2965,8 +3028,6 @@ async function preloadAvatars() {
       `${avatarBase}${avatar}`
     );
 
-    // Avatar loading:
-    // 10% → 40%
     const progress =
       10 +
       Math.round(
@@ -2979,8 +3040,6 @@ async function preloadAvatars() {
       progress
     );
 
-    // Give browser a frame
-    // to paint the progress bar.
     await new Promise(
       (resolve) =>
         requestAnimationFrame(
@@ -3107,7 +3166,8 @@ function initializeButtonFunctions() {
       "keydown",
       (event) => {
         if (
-          event.key === "Enter"
+          event.key ===
+          "Enter"
         ) {
           event.preventDefault();
 
@@ -3222,18 +3282,12 @@ function initializeButtonFunctions() {
 // =====================================================================
 async function startup() {
   try {
-    // ---------------------------------------------------------------
-    // 0%
-    // ---------------------------------------------------------------
     setLoaderStatus(
       "Preparing Blank Page..."
     );
 
     setLoaderProgress(5);
 
-    // ---------------------------------------------------------------
-    // 10%
-    // ---------------------------------------------------------------
     clearSession();
 
     setLoaderStatus(
@@ -3249,14 +3303,8 @@ async function startup() {
         )
     );
 
-    // ---------------------------------------------------------------
-    // 10% → 40%
-    // ---------------------------------------------------------------
     await preloadAvatars();
 
-    // ---------------------------------------------------------------
-    // 45%
-    // ---------------------------------------------------------------
     setLoaderStatus(
       "Preparing game interface..."
     );
@@ -3270,16 +3318,10 @@ async function startup() {
         )
     );
 
-    // ---------------------------------------------------------------
-    // 55%
-    // ---------------------------------------------------------------
     checkRequiredElements();
 
     setLoaderProgress(55);
 
-    // ---------------------------------------------------------------
-    // 65%
-    // ---------------------------------------------------------------
     setLoaderStatus(
       "Loading buttons and controls..."
     );
@@ -3288,18 +3330,12 @@ async function startup() {
 
     setLoaderProgress(65);
 
-    // ---------------------------------------------------------------
-    // 75%
-    // ---------------------------------------------------------------
     setLoaderStatus(
       "Preparing player controls..."
     );
 
     setLoaderProgress(75);
 
-    // ---------------------------------------------------------------
-    // 85%
-    // ---------------------------------------------------------------
     setLoaderStatus(
       "Setting up the game..."
     );
@@ -3321,9 +3357,6 @@ async function startup() {
 
     setLoaderProgress(85);
 
-    // ---------------------------------------------------------------
-    // 95%
-    // ---------------------------------------------------------------
     setLoaderStatus(
       "Almost ready..."
     );
@@ -3340,9 +3373,6 @@ async function startup() {
 
     setLoaderProgress(95);
 
-    // ---------------------------------------------------------------
-    // 100%
-    // ---------------------------------------------------------------
     setLoaderStatus(
       "Ready!"
     );
@@ -3357,9 +3387,6 @@ async function startup() {
         )
     );
 
-    // ---------------------------------------------------------------
-    // REMOVE LOADER
-    // ---------------------------------------------------------------
     const loader =
       $("startup-loader");
 
@@ -3372,16 +3399,12 @@ async function startup() {
         loader.remove();
       }, 500);
     }
-
   } catch (error) {
     console.error(
       "[Blank Page] Startup error:",
       error
     );
 
-    // IMPORTANT:
-    // Even if something goes wrong,
-    // don't trap the user behind the loader.
     try {
       initializeButtonFunctions();
 
