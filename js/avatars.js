@@ -8,7 +8,15 @@ export const AVATARS = [
   "dragon.svg",
   "detective.svg",
   "pirate.svg",
-  "saymyname.png"
+  "saymyname.png",
+  "cho.png",
+  "girl.png",
+  "what.png",
+  "jane.png",
+  "wojack.png",
+  "poet.png",
+  "dexter.png"
+
 ];
 
 export function avatarMarkup(avatar, className = "avatar-svg") {
