@@ -29,6 +29,342 @@ const state = {
 // The logo stays up through the name, create/join and lobby screens,
 // and disappears once the game actually starts.
 const TITLE_SCREENS = ["name", "mode", "lobby"];
+// ---------------------------------------------------------------------
+// STARTUP LOADER
+// ---------------------------------------------------------------------
+
+const STARTUP_REQUIRED_ELEMENTS = [
+  "site-title",
+  "screen-name",
+  "screen-mode",
+  "screen-lobby",
+  "screen-writing",
+  "screen-guessing",
+  "screen-reveal",
+
+  "input-name",
+  "input-code",
+
+  "avatar-preview",
+  "avatar-prev",
+  "avatar-next",
+
+  "btn-continue",
+  "btn-back-name",
+  "btn-create",
+  "btn-join",
+
+  "room-bar",
+  "room-bar-code",
+
+  "lobby-code",
+  "lobby-players",
+  "lobby-host-controls",
+  "btn-start",
+
+  "player-strip",
+
+  "write-round",
+  "write-topic",
+  "write-topic-text",
+  "write-text",
+  "write-timer",
+  "btn-submit-paper",
+
+  "guess-player-grid",
+  "guess-progress",
+  "guess-paper-text",
+  "guess-status",
+
+  "reveal-round",
+  "reveal-topic",
+  "reveal-list",
+  "reveal-prev",
+  "reveal-next",
+  "reveal-counter",
+  "scoreboard",
+  "reveal-host-controls",
+
+  "toggle-extempore",
+  "extempore-options",
+  "lobby-mode-note",
+
+  "input-topic",
+  "btn-add-topic",
+  "custom-topic-list",
+
+  "btn-next-round",
+  "btn-leave"
+];
+
+function updateStartupLoader(status, progress) {
+  const statusEl = $("startup-loader-status");
+  const progressBar = $("startup-loader-progress-bar");
+  const percentEl = $("startup-loader-percent");
+
+  if (statusEl) {
+    statusEl.textContent = status;
+  }
+
+  if (progressBar) {
+    progressBar.style.width = `${progress}%`;
+  }
+
+  if (percentEl) {
+    percentEl.textContent = `${Math.round(progress)}%`;
+  }
+}
+
+function waitForPaint() {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(resolve);
+    });
+  });
+}
+
+async function preloadAvatars() {
+  const total = AVATARS.length;
+
+  if (total === 0) {
+    return;
+  }
+
+  let loaded = 0;
+
+  const avatarPromises = AVATARS.map((avatar) => {
+    return new Promise((resolve) => {
+      const img = new Image();
+
+      img.onload = () => {
+        loaded++;
+
+        const progress =
+          25 + (loaded / total) * 35;
+
+        updateStartupLoader(
+          `Loading avatars (${loaded}/${total})…`,
+          progress
+        );
+
+        resolve();
+      };
+
+      img.onerror = () => {
+        // Don't block the entire game if one optional avatar fails.
+        loaded++;
+
+        const progress =
+          25 + (loaded / total) * 35;
+
+        updateStartupLoader(
+          `Loading avatars (${loaded}/${total})…`,
+          progress
+        );
+
+        resolve();
+      };
+
+      img.src = `assets/avatars/${avatar}`;
+    });
+  });
+
+  await Promise.all(avatarPromises);
+}
+
+function checkRequiredElements() {
+  const missing =
+    STARTUP_REQUIRED_ELEMENTS.filter(
+      (id) => !$(id)
+    );
+
+  if (missing.length > 0) {
+    console.warn(
+      "Startup check: missing elements:",
+      missing
+    );
+  }
+
+  return missing;
+}
+
+function initializeButtonFunctions() {
+  updateStartupLoader(
+    "Connecting controls…",
+    70
+  );
+
+  // These assignments don't need to be called yet.
+  // They are initialized here so the UI is ready before
+  // the startup screen disappears.
+
+  $("avatar-prev").onclick =
+    () => changeAvatar(-1);
+
+  $("avatar-next").onclick =
+    () => changeAvatar(1);
+
+  $("btn-continue").onclick =
+    continueFromName;
+
+  $("btn-back-name").onclick =
+    backToName;
+
+  $("btn-create").onclick =
+    createRoom;
+
+  $("btn-join").onclick =
+    joinRoom;
+
+  $("btn-start").onclick =
+    startGame;
+
+  $("btn-submit-paper").onclick =
+    submitPaper;
+
+  $("btn-next-round").onclick =
+    nextRound;
+
+  $("btn-leave").onclick =
+    leaveRoom;
+
+  $("toggle-extempore").onchange =
+    toggleExtempore;
+
+  $("btn-add-topic").onclick =
+    addCustomTopic;
+
+  $("input-topic").addEventListener(
+    "keydown",
+    (event) => {
+      if (event.key === "Enter") {
+        addCustomTopic();
+      }
+    }
+  );
+
+  $("reveal-prev").onclick =
+    () => moveReveal(-1);
+
+  $("reveal-next").onclick =
+    () => moveReveal(1);
+
+  $("input-name").addEventListener(
+    "keydown",
+    (event) => {
+      if (event.key === "Enter") {
+        continueFromName();
+      }
+    }
+  );
+
+  $("input-code").addEventListener(
+    "keydown",
+    (event) => {
+      if (event.key === "Enter") {
+        joinRoom();
+      }
+    }
+  );
+}
+
+function initializeKeyboardControls() {
+  document.addEventListener(
+    "keydown",
+    (event) => {
+      if (
+        !$("screen-reveal")
+          .classList
+          .contains("active")
+      ) {
+        return;
+      }
+
+      if (
+        event.key === "ArrowLeft" &&
+        !$("reveal-prev").disabled
+      ) {
+        moveReveal(-1);
+      }
+
+      if (
+        event.key === "ArrowRight" &&
+        !$("reveal-next").disabled
+      ) {
+        moveReveal(1);
+      }
+    }
+  );
+}
+
+async function startGameStartup() {
+  const loader = $("startup-loader");
+
+  // Make sure the loader itself is visible while loading.
+  loader?.classList.remove("hidden");
+
+  updateStartupLoader(
+    "Starting Blank Page…",
+    5
+  );
+
+  await waitForPaint();
+
+  updateStartupLoader(
+    "Checking game interface…",
+    15
+  );
+
+  checkRequiredElements();
+
+  await waitForPaint();
+
+  // Preload every avatar.
+  await preloadAvatars();
+
+  await waitForPaint();
+
+  updateStartupLoader(
+    "Preparing avatar picker…",
+    65
+  );
+
+  renderAvatarPicker();
+
+  await waitForPaint();
+
+  initializeButtonFunctions();
+
+  await waitForPaint();
+
+  initializeKeyboardControls();
+
+  updateStartupLoader(
+    "Preparing game screens…",
+    85
+  );
+
+  clearSession();
+
+  $("room-bar").classList.add("hidden");
+
+  showScreen("name");
+
+  await waitForPaint();
+
+  updateStartupLoader(
+    "Everything is ready!",
+    100
+  );
+
+  // Let the user actually see the completed state
+  // for a tiny moment instead of an abrupt flash.
+  await new Promise((resolve) =>
+    setTimeout(resolve, 250)
+  );
+
+  loader?.classList.add("hidden");
+}
 
 function showScreen(name) {
   document.querySelectorAll(".screen").forEach((s) => s.classList.remove("active"));
