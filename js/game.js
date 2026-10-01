@@ -9,7 +9,7 @@ const MAX_PLAYERS = 8;
 const MAX_CUSTOM_TOPICS = 10;
 
 // ---------------------------------------------------------------------
-// state
+// STATE
 // ---------------------------------------------------------------------
 const state = {
   room: null,
@@ -27,7 +27,6 @@ const state = {
   revealRound: null,
 };
 
-// Prevent accidental double clicks while network requests are running.
 let creatingRoom = false;
 let joiningRoom = false;
 let leavingRoom = false;
@@ -37,14 +36,14 @@ let startingNextRound = false;
 let initialized = false;
 
 // ---------------------------------------------------------------------
-// screens
+// SCREENS
 // ---------------------------------------------------------------------
 const TITLE_SCREENS = ["name", "mode", "lobby"];
 
 function showScreen(name) {
-  document.querySelectorAll(".screen").forEach((s) => {
-    s.classList.remove("active");
-  });
+  document
+    .querySelectorAll(".screen")
+    .forEach((s) => s.classList.remove("active"));
 
   const screen = $(`screen-${name}`);
 
@@ -55,18 +54,23 @@ function showScreen(name) {
   const title = $("site-title");
 
   if (title) {
-    title.classList.toggle("hidden", !TITLE_SCREENS.includes(name));
+    title.classList.toggle(
+      "hidden",
+      !TITLE_SCREENS.includes(name)
+    );
   }
 }
 
 // ---------------------------------------------------------------------
-// utilities
+// UTILITIES
 // ---------------------------------------------------------------------
 function randomCode(len = 5) {
   let out = "";
 
   for (let i = 0; i < len; i++) {
-    out += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)];
+    out += CODE_CHARS[
+      Math.floor(Math.random() * CODE_CHARS.length)
+    ];
   }
 
   return out;
@@ -77,6 +81,7 @@ function shuffle(arr) {
 
   for (let i = a.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
+
     [a[i], a[j]] = [a[j], a[i]];
   }
 
@@ -88,13 +93,17 @@ function clearSession() {
 }
 
 function escapeHtml(value) {
-  return String(value ?? "").replace(/[&<>"']/g, (char) => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#039;",
-  }[char]));
+  return String(value ?? "").replace(
+    /[&<>"']/g,
+    (char) =>
+      ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#039;",
+      })[char]
+  );
 }
 
 function setError(id, msg) {
@@ -111,8 +120,8 @@ function setError(id, msg) {
   }, 4000);
 }
 
-// Safe event binder.
-// If an element is missing, the game doesn't crash during startup.
+// Safe event binding.
+// Missing elements won't crash the whole game.
 function bindClick(id, handler) {
   const el = $(id);
 
@@ -136,7 +145,7 @@ function bindChange(id, handler) {
 }
 
 // ---------------------------------------------------------------------
-// avatar picker
+// AVATAR PICKER
 // ---------------------------------------------------------------------
 function renderAvatarPicker() {
   const preview = $("avatar-preview");
@@ -156,10 +165,13 @@ function renderAvatarPicker() {
 }
 
 function changeAvatar(direction) {
-  const current = AVATARS.indexOf(state.selectedAvatar);
+  const current = AVATARS.indexOf(
+    state.selectedAvatar
+  );
 
   const next =
-    (current + direction + AVATARS.length) % AVATARS.length;
+    (current + direction + AVATARS.length) %
+    AVATARS.length;
 
   state.selectedAvatar = AVATARS[next];
 
@@ -174,7 +186,10 @@ function continueFromName() {
   const name = input.value.trim();
 
   if (!name) {
-    return setError("name-error", "Enter your name first.");
+    return setError(
+      "name-error",
+      "Enter your name first."
+    );
   }
 
   if ($("mode-name")) {
@@ -218,7 +233,8 @@ async function createRoom() {
     button.classList.add("loading");
 
     if (!button.dataset.originalText) {
-      button.dataset.originalText = button.textContent;
+      button.dataset.originalText =
+        button.textContent;
     }
 
     button.textContent = "Creating...";
@@ -232,7 +248,10 @@ async function createRoom() {
     const name = input.value.trim();
 
     if (!name) {
-      setError("name-error", "Enter your name first.");
+      setError(
+        "name-error",
+        "Enter your name first."
+      );
       return;
     }
 
@@ -251,18 +270,27 @@ async function createRoom() {
       existing = result.data;
     } while (existing);
 
-    const { data: room, error } = await supabase
+    const {
+      data: room,
+      error,
+    } = await supabase
       .from("rooms")
       .insert({ code })
       .select()
       .single();
 
     if (error) {
-      setError("name-error", error.message);
+      setError(
+        "name-error",
+        error.message
+      );
       return;
     }
 
-    const { data: player, error: pErr } = await supabase
+    const {
+      data: player,
+      error: pErr,
+    } = await supabase
       .from("players")
       .insert({
         room_id: room.id,
@@ -274,17 +302,29 @@ async function createRoom() {
       .single();
 
     if (pErr) {
-      setError("name-error", pErr.message);
+      setError(
+        "name-error",
+        pErr.message
+      );
       return;
     }
 
     clearSession();
 
-    await enterRoom(room.id, player.id);
-
+    await enterRoom(
+      room.id,
+      player.id
+    );
   } catch (error) {
-    console.error("Create room error:", error);
-    setError("name-error", "Could not create the room.");
+    console.error(
+      "Create room error:",
+      error
+    );
+
+    setError(
+      "name-error",
+      "Could not create the room."
+    );
   } finally {
     creatingRoom = false;
 
@@ -293,7 +333,8 @@ async function createRoom() {
       button.classList.remove("loading");
 
       if (button.dataset.originalText) {
-        button.textContent = button.dataset.originalText;
+        button.textContent =
+          button.dataset.originalText;
       }
     }
   }
@@ -314,7 +355,8 @@ async function joinRoom() {
     button.classList.add("loading");
 
     if (!button.dataset.originalText) {
-      button.dataset.originalText = button.textContent;
+      button.dataset.originalText =
+        button.textContent;
     }
 
     button.textContent = "Joining...";
@@ -324,44 +366,67 @@ async function joinRoom() {
     const nameInput = $("input-name");
     const codeInput = $("input-code");
 
-    if (!nameInput || !codeInput) return;
+    if (!nameInput || !codeInput) {
+      return;
+    }
 
-    const name = nameInput.value.trim();
-    const code = codeInput.value.trim().toUpperCase();
+    const name =
+      nameInput.value.trim();
+
+    const code =
+      codeInput.value
+        .trim()
+        .toUpperCase();
 
     if (!name) {
-      setError("name-error", "Enter your name first.");
+      setError(
+        "name-error",
+        "Enter your name first."
+      );
       return;
     }
 
     if (!code) {
-      setError("name-error", "Enter a room code.");
+      setError(
+        "name-error",
+        "Enter a room code."
+      );
       return;
     }
 
-    const { data: room, error } = await supabase
+    const {
+      data: room,
+      error,
+    } = await supabase
       .from("rooms")
       .select()
       .eq("code", code)
       .maybeSingle();
 
     if (error || !room) {
-      setError("name-error", "Room not found.");
+      setError(
+        "name-error",
+        "Room not found."
+      );
       return;
     }
 
     if (room.status !== "lobby") {
-      setError("name-error", "That game already started.");
+      setError(
+        "name-error",
+        "That game already started."
+      );
       return;
     }
 
-    const { count } = await supabase
-      .from("players")
-      .select("id", {
-        count: "exact",
-        head: true,
-      })
-      .eq("room_id", room.id);
+    const { count } =
+      await supabase
+        .from("players")
+        .select("id", {
+          count: "exact",
+          head: true,
+        })
+        .eq("room_id", room.id);
 
     if ((count ?? 0) >= MAX_PLAYERS) {
       setError(
@@ -371,7 +436,10 @@ async function joinRoom() {
       return;
     }
 
-    const { data: player, error: pErr } = await supabase
+    const {
+      data: player,
+      error: pErr,
+    } = await supabase
       .from("players")
       .insert({
         room_id: room.id,
@@ -383,17 +451,29 @@ async function joinRoom() {
       .single();
 
     if (pErr) {
-      setError("name-error", pErr.message);
+      setError(
+        "name-error",
+        pErr.message
+      );
       return;
     }
 
     clearSession();
 
-    await enterRoom(room.id, player.id);
-
+    await enterRoom(
+      room.id,
+      player.id
+    );
   } catch (error) {
-    console.error("Join room error:", error);
-    setError("name-error", "Could not join the room.");
+    console.error(
+      "Join room error:",
+      error
+    );
+
+    setError(
+      "name-error",
+      "Could not join the room."
+    );
   } finally {
     joiningRoom = false;
 
@@ -402,7 +482,8 @@ async function joinRoom() {
       button.classList.remove("loading");
 
       if (button.dataset.originalText) {
-        button.textContent = button.dataset.originalText;
+        button.textContent =
+          button.dataset.originalText;
       }
     }
   }
@@ -411,17 +492,26 @@ async function joinRoom() {
 // ---------------------------------------------------------------------
 // ENTER ROOM
 // ---------------------------------------------------------------------
-async function enterRoom(roomId, playerId) {
+async function enterRoom(
+  roomId,
+  playerId
+) {
   state.playerId = playerId;
 
-  const { data: room, error } = await supabase
+  const {
+    data: room,
+    error,
+  } = await supabase
     .from("rooms")
     .select()
     .eq("id", roomId)
     .single();
 
   if (error || !room) {
-    setError("name-error", "Could not enter the room.");
+    setError(
+      "name-error",
+      "Could not enter the room."
+    );
     return;
   }
 
@@ -431,14 +521,13 @@ async function enterRoom(roomId, playerId) {
 
   subscribeRealtime(roomId);
 
-  const roomBar = $("room-bar");
-
-  if (roomBar) {
-    roomBar.classList.remove("hidden");
-  }
+  $("room-bar")?.classList.remove(
+    "hidden"
+  );
 
   if ($("room-bar-code")) {
-    $("room-bar-code").textContent = room.code;
+    $("room-bar-code").textContent =
+      room.code;
   }
 
   renderForStatus();
@@ -455,24 +544,38 @@ async function leaveRoom() {
   leavingRoom = true;
 
   try {
-    clearInterval(state.timerHandle);
+    clearInterval(
+      state.timerHandle
+    );
+
     state.timerHandle = null;
 
     if (state.channel) {
-      await supabase.removeChannel(state.channel);
+      await supabase.removeChannel(
+        state.channel
+      );
+
       state.channel = null;
     }
 
     if (isHost()) {
-      const next = state.players.find(
-        (p) => p.id !== state.playerId
-      );
+      const next =
+        state.players.find(
+          (p) =>
+            p.id !==
+            state.playerId
+        );
 
       if (next) {
         await supabase
           .from("players")
-          .update({ is_host: true })
-          .eq("id", next.id);
+          .update({
+            is_host: true,
+          })
+          .eq(
+            "id",
+            next.id
+          );
       }
     }
 
@@ -480,7 +583,10 @@ async function leaveRoom() {
       await supabase
         .from("players")
         .delete()
-        .eq("id", state.playerId);
+        .eq(
+          "id",
+          state.playerId
+        );
     }
 
     clearSession();
@@ -495,8 +601,13 @@ async function leaveRoom() {
     state.revealIndex = 0;
     state.revealRound = null;
 
-    $("room-bar")?.classList.add("hidden");
-    $("player-strip")?.classList.add("hidden");
+    $("room-bar")?.classList.add(
+      "hidden"
+    );
+
+    $("player-strip")?.classList.add(
+      "hidden"
+    );
 
     if ($("player-strip")) {
       $("player-strip").innerHTML = "";
@@ -523,9 +634,11 @@ async function leaveRoom() {
     }
 
     showScreen("name");
-
   } catch (error) {
-    console.error("Leave room error:", error);
+    console.error(
+      "Leave room error:",
+      error
+    );
   } finally {
     leavingRoom = false;
   }
@@ -537,23 +650,38 @@ async function leaveRoom() {
 async function refreshPlayers() {
   if (!state.room) return;
 
-  const { data, error } = await supabase
+  const {
+    data,
+    error,
+  } = await supabase
     .from("players")
     .select()
-    .eq("room_id", state.room.id)
+    .eq(
+      "room_id",
+      state.room.id
+    )
     .order("joined_at");
 
   if (!error) {
-    state.players = data || [];
+    state.players =
+      data || [];
   }
 }
 
 async function renderPlayerStrip() {
-  const strip = $("player-strip");
+  const strip =
+    $("player-strip");
 
-  if (!strip || !state.room || !state.playerId) return;
+  if (
+    !strip ||
+    !state.room ||
+    !state.playerId
+  ) {
+    return;
+  }
 
-  const status = state.room.status;
+  const status =
+    state.room.status;
 
   const show = [
     "writing",
@@ -561,42 +689,73 @@ async function renderPlayerStrip() {
     "reveal",
   ].includes(status);
 
-  strip.classList.toggle("hidden", !show);
+  strip.classList.toggle(
+    "hidden",
+    !show
+  );
 
   if (!show) return;
 
-  let doneIds = new Set();
+  let doneIds =
+    new Set();
 
   const progress = {};
 
   if (status === "writing") {
-    const { data: papers } = await supabase
-      .from("papers")
-      .select("author_id")
-      .eq("room_id", state.room.id)
-      .eq("round", state.room.round);
+    const { data: papers } =
+      await supabase
+        .from("papers")
+        .select("author_id")
+        .eq(
+          "room_id",
+          state.room.id
+        )
+        .eq(
+          "round",
+          state.room.round
+        );
 
     doneIds = new Set(
-      (papers || []).map((p) => p.author_id)
+      (papers || []).map(
+        (p) => p.author_id
+      )
     );
-
-  } else if (status === "guessing") {
-    const { data: assignments } = await supabase
+  } else if (
+    status === "guessing"
+  ) {
+    const {
+      data: assignments,
+    } = await supabase
       .from("assignments")
-      .select("assigned_to, guessed_player_id")
-      .eq("room_id", state.room.id)
-      .eq("round", state.room.round);
+      .select(
+        "assigned_to, guessed_player_id"
+      )
+      .eq(
+        "room_id",
+        state.room.id
+      )
+      .eq(
+        "round",
+        state.room.round
+      );
 
-    (assignments || []).forEach((a) => {
+    (
+      assignments || []
+    ).forEach((a) => {
       const pr =
-        (progress[a.assigned_to] ||= {
+        (progress[
+          a.assigned_to
+        ] ||= {
           total: 0,
           answered: 0,
         });
 
       pr.total++;
 
-      if (a.guessed_player_id !== null) {
+      if (
+        a.guessed_player_id !==
+        null
+      ) {
         pr.answered++;
       }
     });
@@ -604,70 +763,110 @@ async function renderPlayerStrip() {
     doneIds = new Set(
       state.players
         .filter((pl) => {
-          const pr = progress[pl.id];
+          const pr =
+            progress[pl.id];
 
           return (
             !pr ||
-            pr.answered >= pr.total
+            pr.answered >=
+              pr.total
           );
         })
-        .map((pl) => pl.id)
+        .map(
+          (pl) => pl.id
+        )
     );
-
   } else {
     doneIds = new Set(
-      state.players.map((p) => p.id)
+      state.players.map(
+        (p) => p.id
+      )
     );
   }
 
   strip.innerHTML = "";
 
-  state.players.forEach((p) => {
-    const card = document.createElement("div");
+  state.players.forEach(
+    (p) => {
+      const card =
+        document.createElement(
+          "div"
+        );
 
-    const done = doneIds.has(p.id);
-    const me = p.id === state.playerId;
+      const done =
+        doneIds.has(p.id);
 
-    card.className =
-      `player-tab${done ? " done" : ""}${me ? " me" : ""}`;
+      const me =
+        p.id ===
+        state.playerId;
 
-    card.title =
-      `${p.name} · ${p.score ?? 0} point${p.score === 1 ? "" : "s"}`;
+      card.className =
+        `player-tab${
+          done ? " done" : ""
+        }${
+          me ? " me" : ""
+        }`;
 
-    const statusLabel =
-      status === "writing"
-        ? done
-          ? "Done"
-          : "Writing…"
-        : status === "guessing"
+      card.title =
+        `${p.name} · ${
+          p.score ?? 0
+        } point${
+          p.score === 1
+            ? ""
+            : "s"
+        }`;
+
+      const statusLabel =
+        status === "writing"
           ? done
             ? "Done"
-            : `${progress[p.id]?.answered ?? 0}/${progress[p.id]?.total ?? 0}`
-          : "Done";
+            : "Writing…"
+          : status ===
+              "guessing"
+            ? done
+              ? "Done"
+              : `${
+                  progress[
+                    p.id
+                  ]?.answered ??
+                  0
+                }/${
+                  progress[
+                    p.id
+                  ]?.total ??
+                  0
+                }`
+            : "Done";
 
-    card.innerHTML = `
-      <div class="player-tab-avatar">
-        ${avatarMarkup(p.avatar, "avatar-svg")}
-      </div>
-
-      <div class="player-tab-info">
-        <div class="player-tab-name">
-          ${escapeHtml(p.name)}
+      card.innerHTML = `
+        <div class="player-tab-avatar">
+          ${avatarMarkup(
+            p.avatar,
+            "avatar-svg"
+          )}
         </div>
 
-        <div class="player-tab-status">
-          <span class="player-status-dot"></span>
-          ${statusLabel}
+        <div class="player-tab-info">
+          <div class="player-tab-name">
+            ${escapeHtml(
+              p.name
+            )}
+          </div>
+
+          <div class="player-tab-status">
+            <span class="player-status-dot"></span>
+            ${statusLabel}
+          </div>
         </div>
-      </div>
 
-      <div class="player-tab-score">
-        ${p.score ?? 0}
-      </div>
-    `;
+        <div class="player-tab-score">
+          ${p.score ?? 0}
+        </div>
+      `;
 
-    strip.appendChild(card);
-  });
+      strip.appendChild(card);
+    }
+  );
 }
 
 // ---------------------------------------------------------------------
@@ -675,118 +874,151 @@ async function renderPlayerStrip() {
 // ---------------------------------------------------------------------
 function subscribeRealtime(roomId) {
   if (state.channel) {
-    supabase.removeChannel(state.channel);
+    supabase.removeChannel(
+      state.channel
+    );
   }
 
-  state.channel = supabase
-    .channel(`room-${roomId}`)
+  state.channel =
+    supabase
+      .channel(
+        `room-${roomId}`
+      )
 
-    // ROOMS
-    .on(
-      "postgres_changes",
-      {
-        event: "*",
-        schema: "public",
-        table: "rooms",
-        filter: `id=eq.${roomId}`,
-      },
-      async (payload) => {
-        const previousStatus = state.room?.status;
-        const previousRound = state.room?.round;
+      // ROOMS
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "rooms",
+          filter: `id=eq.${roomId}`,
+        },
+        async (payload) => {
+          const previousStatus =
+            state.room?.status;
 
-        state.room = payload.new;
+          const previousRound =
+            state.room?.round;
 
-        // Don't rebuild the writing screen while someone is typing.
-        if (
-          state.room.status === "writing" &&
-          previousStatus === "writing" &&
-          previousRound === state.room.round
-        ) {
+          state.room =
+            payload.new;
+
+          // IMPORTANT:
+          // Never rebuild the writing form
+          // while the player is typing.
+          if (
+            state.room.status ===
+              "writing" &&
+            previousStatus ===
+              "writing" &&
+            previousRound ===
+              state.room.round
+          ) {
+            await renderPlayerStrip();
+            return;
+          }
+
+          renderForStatus();
+
           await renderPlayerStrip();
-          return;
         }
+      )
 
-        renderForStatus();
-        await renderPlayerStrip();
-      }
-    )
+      // PLAYERS
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "players",
+          filter: `room_id=eq.${roomId}`,
+        },
+        async (payload) => {
+          // Detect local player deletion.
+          if (
+            payload.eventType ===
+              "DELETE" &&
+            payload.old?.id ===
+              state.playerId
+          ) {
+            alert(
+              "You were removed from the room."
+            );
 
-    // PLAYERS
-    .on(
-      "postgres_changes",
-      {
-        event: "*",
-        schema: "public",
-        table: "players",
-        filter: `room_id=eq.${roomId}`,
-      },
-      async (payload) => {
-        // If realtime gives us the deleted player's ID,
-        // immediately detect that the local player was removed.
-        if (
-          payload.eventType === "DELETE" &&
-          payload.old?.id === state.playerId
-        ) {
-          alert("You were removed from the room.");
+            await leaveRoom();
+            return;
+          }
 
-          await leaveRoom();
-          return;
-        }
+          await refreshPlayers();
 
-        await refreshPlayers();
-        await renderPlayerStrip();
-
-        // Never rebuild the writing form because someone joined,
-        // left, or their score changed.
-        if (state.room?.status === "writing") {
-          return;
-        }
-
-        renderForStatus();
-      }
-    )
-
-    // PAPERS
-    .on(
-      "postgres_changes",
-      {
-        event: "*",
-        schema: "public",
-        table: "papers",
-        filter: `room_id=eq.${roomId}`,
-      },
-      async () => {
-        if (state.room?.status === "writing") {
           await renderPlayerStrip();
-          await maybeAutoAdvanceWriting();
-        }
-      }
-    )
 
-    // ASSIGNMENTS
-    .on(
-      "postgres_changes",
-      {
-        event: "*",
-        schema: "public",
-        table: "assignments",
-        filter: `room_id=eq.${roomId}`,
-      },
-      async () => {
-        if (state.room?.status === "guessing") {
-          await renderGuessing();
-          await maybeAutoAdvanceGuessing();
-        }
-      }
-    )
+          // Never rebuild writing screen
+          // because somebody joined/left.
+          if (
+            state.room?.status ===
+            "writing"
+          ) {
+            return;
+          }
 
-    .subscribe();
+          renderForStatus();
+        }
+      )
+
+      // PAPERS
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "papers",
+          filter: `room_id=eq.${roomId}`,
+        },
+        async () => {
+          if (
+            state.room?.status ===
+            "writing"
+          ) {
+            await renderPlayerStrip();
+
+            await maybeAutoAdvanceWriting();
+          }
+        }
+      )
+
+      // ASSIGNMENTS
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "assignments",
+          filter: `room_id=eq.${roomId}`,
+        },
+        async () => {
+          if (
+            state.room?.status ===
+            "guessing"
+          ) {
+            await renderGuessing();
+
+            await maybeAutoAdvanceGuessing();
+          }
+        }
+      )
+
+      .subscribe();
 }
 
 function isHost() {
-  const me = state.players.find(
-    (p) => p.id === state.playerId
-  );
+  const me =
+    state.players.find(
+      (p) =>
+        p.id ===
+        state.playerId
+    );
 
   return !!me?.is_host;
 }
@@ -797,7 +1029,9 @@ function isHost() {
 function renderForStatus() {
   if (!state.room) return;
 
-  switch (state.room.status) {
+  switch (
+    state.room.status
+  ) {
     case "lobby":
       renderLobby();
       showScreen("lobby");
@@ -830,46 +1064,61 @@ function renderLobby() {
   if (!state.room) return;
 
   if ($("lobby-code")) {
-    $("lobby-code").textContent = state.room.code;
+    $("lobby-code").textContent =
+      state.room.code;
   }
 
-  const list = $("lobby-players");
+  const list =
+    $("lobby-players");
 
   if (list) {
     list.innerHTML = "";
 
-    state.players.forEach((p) => {
-      const li = document.createElement("li");
+    state.players.forEach(
+      (p) => {
+        const li =
+          document.createElement(
+            "li"
+          );
 
-      li.innerHTML =
-        `${avatarMarkup(p.avatar, "avatar-svg lobby-avatar")}
-         <span>${escapeHtml(p.name)}</span>` +
-        (p.is_host
-          ? `<span class="host-tag">HOST</span>`
-          : "");
+        li.innerHTML =
+          `${avatarMarkup(
+            p.avatar,
+            "avatar-svg lobby-avatar"
+          )}
+          <span>
+            ${escapeHtml(
+              p.name
+            )}
+          </span>` +
+          (p.is_host
+            ? `<span class="host-tag">HOST</span>`
+            : "");
 
-      list.appendChild(li);
-    });
+        list.appendChild(li);
+      }
+    );
   }
 
-  const host = isHost();
+  const host =
+    isHost();
 
-  $("lobby-host-controls")?.classList.toggle(
-    "hidden",
-    !host
-  );
+  $("lobby-host-controls")
+    ?.classList.toggle(
+      "hidden",
+      !host
+    );
 
   const countLabel =
     `${state.players.length}/${MAX_PLAYERS} players`;
 
   if ($("lobby-hint")) {
-    $("lobby-hint").textContent = host
-      ? (
-          state.players.length < 3
-            ? `Need at least 3 players to start. (${countLabel})`
-            : countLabel
-        )
-      : `Waiting for the host to start the game… (${countLabel})`;
+    $("lobby-hint").textContent =
+      host
+        ? state.players.length < 3
+          ? `Need at least 3 players to start. (${countLabel})`
+          : countLabel
+        : `Waiting for the host to start the game… (${countLabel})`;
   }
 
   if ($("btn-start")) {
@@ -878,44 +1127,63 @@ function renderLobby() {
   }
 
   // EXTEMPORE
-  const extempore = !!state.room.extempore;
+  const extempore =
+    !!state.room.extempore;
 
   if ($("toggle-extempore")) {
-    $("toggle-extempore").checked = extempore;
+    $("toggle-extempore").checked =
+      extempore;
   }
 
-  $("extempore-options")?.classList.toggle(
-    "hidden",
-    !(host && extempore)
-  );
+  $("extempore-options")
+    ?.classList.toggle(
+      "hidden",
+      !(host && extempore)
+    );
 
   if ($("lobby-mode-note")) {
-    $("lobby-mode-note").textContent = extempore
-      ? "🎤 Extempore mode: everyone writes on the same topic each round."
-      : "";
+    $("lobby-mode-note").textContent =
+      extempore
+        ? "🎤 Extempore mode: everyone writes on the same topic each round."
+        : "";
   }
 
   // CUSTOM TOPICS
-  const topicList = $("custom-topic-list");
+  const topicList =
+    $("custom-topic-list");
 
   if (topicList) {
     topicList.innerHTML = "";
 
-    (state.room.custom_topics || []).forEach(
+    (
+      state.room
+        .custom_topics || []
+    ).forEach(
       (topic, index) => {
-        const li = document.createElement("li");
+        const li =
+          document.createElement(
+            "li"
+          );
 
-        li.className = "topic-chip";
+        li.className =
+          "topic-chip";
 
-        const span = document.createElement("span");
+        const span =
+          document.createElement(
+            "span"
+          );
 
-        span.textContent = topic;
+        span.textContent =
+          topic;
 
         const remove =
-          document.createElement("button");
+          document.createElement(
+            "button"
+          );
 
         remove.type = "button";
-        remove.textContent = "✕";
+        remove.textContent =
+          "✕";
 
         remove.setAttribute(
           "aria-label",
@@ -923,12 +1191,16 @@ function renderLobby() {
         );
 
         remove.onclick = () =>
-          removeCustomTopic(index);
+          removeCustomTopic(
+            index
+          );
 
         li.appendChild(span);
         li.appendChild(remove);
 
-        topicList.appendChild(li);
+        topicList.appendChild(
+          li
+        );
       }
     );
   }
@@ -938,33 +1210,52 @@ function renderLobby() {
 // EXTEMPORE
 // ---------------------------------------------------------------------
 async function toggleExtempore() {
-  if (!state.room || !isHost()) return;
+  if (
+    !state.room ||
+    !isHost()
+  ) {
+    return;
+  }
 
-  const checkbox = $("toggle-extempore");
+  const checkbox =
+    $("toggle-extempore");
 
   if (!checkbox) return;
 
-  const on = checkbox.checked;
+  const on =
+    checkbox.checked;
 
-  const { error } = await supabase
-    .from("rooms")
-    .update({ extempore: on })
-    .eq("id", state.room.id);
+  const { error } =
+    await supabase
+      .from("rooms")
+      .update({
+        extempore: on,
+      })
+      .eq(
+        "id",
+        state.room.id
+      );
 
   if (error) {
     checkbox.checked = !on;
 
     alert(
       "Could not change Extempore mode: " +
-      error.message
+        error.message
     );
   }
 }
 
 async function addCustomTopic() {
-  if (!state.room || !isHost()) return;
+  if (
+    !state.room ||
+    !isHost()
+  ) {
+    return;
+  }
 
-  const input = $("input-topic");
+  const input =
+    $("input-topic");
 
   if (!input) return;
 
@@ -976,9 +1267,13 @@ async function addCustomTopic() {
   if (!text) return;
 
   const list =
-    state.room.custom_topics || [];
+    state.room.custom_topics ||
+    [];
 
-  if (list.length >= MAX_CUSTOM_TOPICS) {
+  if (
+    list.length >=
+    MAX_CUSTOM_TOPICS
+  ) {
     return setError(
       "topic-error",
       `Up to ${MAX_CUSTOM_TOPICS} custom topics.`
@@ -998,20 +1293,28 @@ async function addCustomTopic() {
     );
   }
 
-  const next = [...list, text];
+  const next = [
+    ...list,
+    text,
+  ];
 
   input.value = "";
 
-  state.room.custom_topics = next;
+  state.room.custom_topics =
+    next;
 
   renderLobby();
 
-  const { error } = await supabase
-    .from("rooms")
-    .update({
-      custom_topics: next,
-    })
-    .eq("id", state.room.id);
+  const { error } =
+    await supabase
+      .from("rooms")
+      .update({
+        custom_topics: next,
+      })
+      .eq(
+        "id",
+        state.room.id
+      );
 
   if (error) {
     setError(
@@ -1021,23 +1324,39 @@ async function addCustomTopic() {
   }
 }
 
-async function removeCustomTopic(index) {
-  if (!state.room || !isHost()) return;
+async function removeCustomTopic(
+  index
+) {
+  if (
+    !state.room ||
+    !isHost()
+  ) {
+    return;
+  }
 
   const next =
-    (state.room.custom_topics || [])
-      .filter((_, i) => i !== index);
+    (
+      state.room
+        .custom_topics || []
+    ).filter(
+      (_, i) => i !== index
+    );
 
-  state.room.custom_topics = next;
+  state.room.custom_topics =
+    next;
 
   renderLobby();
 
-  const { error } = await supabase
-    .from("rooms")
-    .update({
-      custom_topics: next,
-    })
-    .eq("id", state.room.id);
+  const { error } =
+    await supabase
+      .from("rooms")
+      .update({
+        custom_topics: next,
+      })
+      .eq(
+        "id",
+        state.room.id
+      );
 
   if (error) {
     setError(
@@ -1052,20 +1371,27 @@ async function removeCustomTopic(index) {
 // ---------------------------------------------------------------------
 function pickTopic(room) {
   const custom =
-    room.custom_topics || [];
+    room.custom_topics ||
+    [];
 
   let used =
-    room.used_topics || [];
+    room.used_topics ||
+    [];
 
   const unused = (list) =>
     list.filter(
-      (t) => !used.includes(t)
+      (t) =>
+        !used.includes(t)
     );
 
-  let pool = unused(custom);
+  let pool =
+    unused(custom);
 
   if (pool.length === 0) {
-    pool = unused(BUILT_IN_TOPICS);
+    pool =
+      unused(
+        BUILT_IN_TOPICS
+      );
   }
 
   if (pool.length === 0) {
@@ -1080,13 +1406,17 @@ function pickTopic(room) {
   const topic =
     pool[
       Math.floor(
-        Math.random() * pool.length
+        Math.random() *
+          pool.length
       )
     ];
 
   return {
     topic,
-    used: [...used, topic],
+    used: [
+      ...used,
+      topic,
+    ],
   };
 }
 
@@ -1116,11 +1446,18 @@ function renderTopicLine(id) {
 // ---------------------------------------------------------------------
 async function startGame() {
   if (startingGame) return;
-  if (!state.room || !isHost()) return;
+
+  if (
+    !state.room ||
+    !isHost()
+  ) {
+    return;
+  }
 
   startingGame = true;
 
-  const button = $("btn-start");
+  const button =
+    $("btn-start");
 
   if (button) {
     button.disabled = true;
@@ -1130,66 +1467,86 @@ async function startGame() {
         button.textContent;
     }
 
-    button.textContent = "Starting...";
+    button.textContent =
+      "Starting...";
   }
 
   try {
     const seconds =
       parseInt(
-        $("select-seconds")?.value,
+        $("select-seconds")
+          ?.value,
         10
       ) || 60;
 
     const endsAt =
       new Date(
         Date.now() +
-        seconds * 1000
+          seconds * 1000
       ).toISOString();
 
     const update = {
       status: "writing",
       round: 1,
-      round_seconds: seconds,
-      writing_ends_at: endsAt,
+      round_seconds:
+        seconds,
+      writing_ends_at:
+        endsAt,
     };
 
-    if (state.room.extempore) {
+    if (
+      state.room.extempore
+    ) {
       const {
         topic,
         used,
-      } = pickTopic({
-        ...state.room,
-        used_topics: [],
-      });
+      } =
+        pickTopic({
+          ...state.room,
+          used_topics: [],
+        });
 
-      update.topic = topic;
-      update.used_topics = used;
+      update.topic =
+        topic;
+
+      update.used_topics =
+        used;
     }
 
     const { error } =
       await supabase
         .from("rooms")
         .update(update)
-        .eq("id", state.room.id)
-        .eq("status", "lobby");
+        .eq(
+          "id",
+          state.room.id
+        )
+        .eq(
+          "status",
+          "lobby"
+        );
 
     if (error) {
       alert(
         "Could not start the game: " +
-        error.message
+          error.message
       );
     }
-
   } finally {
     startingGame = false;
 
     if (button) {
       button.disabled =
-        state.players.length < 3;
+        state.players.length <
+        3;
 
-      if (button.dataset.originalText) {
+      if (
+        button.dataset
+          .originalText
+      ) {
         button.textContent =
-          button.dataset.originalText;
+          button.dataset
+            .originalText;
       }
     }
   }
@@ -1211,10 +1568,11 @@ function renderWriting() {
       ? state.room.topic
       : null;
 
-  $("write-topic")?.classList.toggle(
-    "hidden",
-    !topic
-  );
+  $("write-topic")
+    ?.classList.toggle(
+      "hidden",
+      !topic
+    );
 
   if ($("write-topic-text")) {
     $("write-topic-text").textContent =
@@ -1228,8 +1586,8 @@ function renderWriting() {
         : "Write anything — a confession, a lie, a weird fact. Someone will have to guess it's you.";
   }
 
-  // CRITICAL:
-  // Don't reset textarea every time realtime updates.
+  // DO NOT RESET THE TEXTAREA
+  // when realtime events arrive.
   if (
     state.currentWritingRound ===
     state.room.round
@@ -1242,7 +1600,8 @@ function renderWriting() {
 
   if ($("write-text")) {
     $("write-text").value = "";
-    $("write-text").disabled = false;
+    $("write-text").disabled =
+      false;
   }
 
   if ($("btn-submit-paper")) {
@@ -1251,7 +1610,8 @@ function renderWriting() {
   }
 
   if ($("write-status")) {
-    $("write-status").textContent = "";
+    $("write-status").textContent =
+      "";
   }
 
   startCountdown(
@@ -1262,21 +1622,28 @@ function renderWriting() {
 // ---------------------------------------------------------------------
 // COUNTDOWN
 // ---------------------------------------------------------------------
-function startCountdown(endsAtISO) {
-  clearInterval(state.timerHandle);
+function startCountdown(
+  endsAtISO
+) {
+  clearInterval(
+    state.timerHandle
+  );
 
   if (!endsAtISO) return;
 
   const endsAt =
-    new Date(endsAtISO).getTime();
+    new Date(
+      endsAtISO
+    ).getTime();
 
   const tick = () => {
     const remaining =
       Math.max(
         0,
         Math.round(
-          (endsAt - Date.now()) /
-          1000
+          (endsAt -
+            Date.now()) /
+            1000
         )
       );
 
@@ -1303,7 +1670,9 @@ function startCountdown(endsAtISO) {
           true;
       }
 
-      if ($("btn-submit-paper")) {
+      if (
+        $("btn-submit-paper")
+      ) {
         $("btn-submit-paper").disabled =
           true;
       }
@@ -1322,16 +1691,24 @@ function startCountdown(endsAtISO) {
   tick();
 
   state.timerHandle =
-    setInterval(tick, 250);
+    setInterval(
+      tick,
+      250
+    );
 }
 
 // ---------------------------------------------------------------------
 // SUBMIT PAPER
 // ---------------------------------------------------------------------
 async function submitPaper() {
-  if (submittingPaper) return;
+  if (submittingPaper) {
+    return;
+  }
 
-  if (!state.room || !state.playerId) {
+  if (
+    !state.room ||
+    !state.playerId
+  ) {
     return;
   }
 
@@ -1367,31 +1744,27 @@ async function submitPaper() {
       await supabase
         .from("papers")
         .insert({
-          room_id: state.room.id,
-          round: state.room.round,
-          author_id: state.playerId,
+          room_id:
+            state.room.id,
+          round:
+            state.room.round,
+          author_id:
+            state.playerId,
           content,
         });
 
-    if (error) {
-      // Usually means unique constraint:
-      // paper already submitted.
-      if ($("write-status")) {
-        $("write-status").textContent =
-          "Submitted. Waiting for others…";
-      }
-    } else {
-      if ($("write-status")) {
-        $("write-status").textContent =
-          "Submitted. Waiting for others…";
-      }
+    if ($("write-status")) {
+      $("write-status").textContent =
+        "Submitted. Waiting for others…";
+    }
 
+    if (!error) {
       textarea.disabled = true;
     }
 
     await renderPlayerStrip();
-    await maybeAutoAdvanceWriting();
 
+    await maybeAutoAdvanceWriting();
   } catch (error) {
     console.error(
       "Submit paper error:",
@@ -1406,14 +1779,17 @@ async function submitPaper() {
     if (button) {
       button.disabled = false;
     }
-
   } finally {
     submittingPaper = false;
 
     if (button) {
-      if (button.dataset.originalText) {
+      if (
+        button.dataset
+          .originalText
+      ) {
         button.textContent =
-          button.dataset.originalText;
+          button.dataset
+            .originalText;
       }
     }
   }
@@ -1425,7 +1801,8 @@ async function submitPaper() {
 async function maybeAutoAdvanceWriting() {
   if (
     !state.room ||
-    state.room.status !== "writing"
+    state.room.status !==
+      "writing"
   ) {
     return;
   }
@@ -1434,8 +1811,14 @@ async function maybeAutoAdvanceWriting() {
     await supabase
       .from("papers")
       .select("author_id")
-      .eq("room_id", state.room.id)
-      .eq("round", state.room.round);
+      .eq(
+        "room_id",
+        state.room.id
+      )
+      .eq(
+        "round",
+        state.room.round
+      );
 
   if (
     (papers?.length || 0) >=
@@ -1456,10 +1839,17 @@ async function claimAndDistribute() {
     await supabase
       .from("rooms")
       .update({
-        status: "distributing",
+        status:
+          "distributing",
       })
-      .eq("id", state.room.id)
-      .eq("status", "writing")
+      .eq(
+        "id",
+        state.room.id
+      )
+      .eq(
+        "status",
+        "writing"
+      )
       .select();
 
   if (
@@ -1482,7 +1872,10 @@ async function claimAndDistribute() {
           ? "guessing"
           : "reveal",
     })
-    .eq("id", state.room.id);
+    .eq(
+      "id",
+      state.room.id
+    );
 }
 
 async function backfillMissingPapers() {
@@ -1490,8 +1883,14 @@ async function backfillMissingPapers() {
     await supabase
       .from("papers")
       .select("author_id")
-      .eq("room_id", state.room.id)
-      .eq("round", state.room.round);
+      .eq(
+        "room_id",
+        state.room.id
+      )
+      .eq(
+        "round",
+        state.room.round
+      );
 
   const wrote =
     new Set(
@@ -1502,7 +1901,8 @@ async function backfillMissingPapers() {
 
   const missing =
     state.players.filter(
-      (p) => !wrote.has(p.id)
+      (p) =>
+        !wrote.has(p.id)
     );
 
   if (missing.length === 0) {
@@ -1513,9 +1913,12 @@ async function backfillMissingPapers() {
     .from("papers")
     .insert(
       missing.map((p) => ({
-        room_id: state.room.id,
-        round: state.room.round,
-        author_id: p.id,
+        room_id:
+          state.room.id,
+        round:
+          state.room.round,
+        author_id:
+          p.id,
         content:
           "🤷 (didn't write anything in time)",
         auto_filled: true,
@@ -1533,12 +1936,19 @@ async function assignPapers() {
     await supabase
       .from("papers")
       .select()
-      .eq("room_id", state.room.id)
-      .eq("round", state.room.round);
+      .eq(
+        "room_id",
+        state.room.id
+      )
+      .eq(
+        "round",
+        state.room.round
+      );
 
   const realPapers =
     (papers || []).filter(
-      (p) => !p.auto_filled
+      (p) =>
+        !p.auto_filled
     );
 
   const rows = [];
@@ -1583,7 +1993,7 @@ async function assignPapers() {
 
       alert(
         "Could not deal the papers: " +
-        error.message
+          error.message
       );
 
       return 0;
@@ -1635,7 +2045,8 @@ async function renderGuessing() {
     return;
   }
 
-  const mine = data || [];
+  const mine =
+    data || [];
 
   const total =
     mine.length;
@@ -1662,13 +2073,20 @@ async function renderGuessing() {
   }
 
   if (total === 0) {
-    $("guess-progress").textContent = "";
+    if ($("guess-progress")) {
+      $("guess-progress").textContent =
+        "";
+    }
 
-    $("guess-paper-text").textContent =
-      "There's nothing for you to guess this round.";
+    if ($("guess-paper-text")) {
+      $("guess-paper-text").textContent =
+        "There's nothing for you to guess this round.";
+    }
 
-    $("guess-status").textContent =
-      "Waiting for everyone else…";
+    if ($("guess-status")) {
+      $("guess-status").textContent =
+        "Waiting for everyone else…";
+    }
 
     return;
   }
@@ -1703,31 +2121,38 @@ async function renderGuessing() {
         p.id !==
         state.playerId
     )
-    .forEach((p) => {
-      const card =
-        document.createElement(
-          "div"
+    .forEach(
+      (p) => {
+        const card =
+          document.createElement(
+            "div"
+          );
+
+        card.className =
+          "player-card";
+
+        card.innerHTML = `
+          ${avatarMarkup(
+            p.avatar,
+            "avatar-svg guess-avatar"
+          )}
+
+          ${escapeHtml(
+            p.name
+          )}
+        `;
+
+        card.onclick = () =>
+          submitGuess(
+            current.id,
+            p.id
+          );
+
+        grid.appendChild(
+          card
         );
-
-      card.className =
-        "player-card";
-
-      card.innerHTML = `
-        ${avatarMarkup(
-          p.avatar,
-          "avatar-svg guess-avatar"
-        )}
-        ${escapeHtml(p.name)}
-      `;
-
-      card.onclick = () =>
-        submitGuess(
-          current.id,
-          p.id
-        );
-
-      grid.appendChild(card);
-    });
+      }
+    );
 }
 
 // ---------------------------------------------------------------------
@@ -1743,7 +2168,8 @@ async function submitGuess(
     return;
   }
 
-  state.submittingGuess = true;
+  state.submittingGuess =
+    true;
 
   try {
     await supabase
@@ -1764,9 +2190,9 @@ async function submitGuess(
     await renderGuessing();
 
     await maybeAutoAdvanceGuessing();
-
   } finally {
-    state.submittingGuess = false;
+    state.submittingGuess =
+      false;
   }
 }
 
@@ -1781,21 +2207,25 @@ async function maybeAutoAdvanceGuessing() {
     return;
   }
 
-  const { data: assignments } =
-    await supabase
-      .from("assignments")
-      .select("guessed_player_id")
-      .eq(
-        "room_id",
-        state.room.id
-      )
-      .eq(
-        "round",
-        state.room.round
-      );
+  const {
+    data: assignments,
+  } = await supabase
+    .from("assignments")
+    .select(
+      "guessed_player_id"
+    )
+    .eq(
+      "room_id",
+      state.room.id
+    )
+    .eq(
+      "round",
+      state.room.round
+    );
 
   const allGuessed =
-    (assignments || []).length > 0 &&
+    (assignments || [])
+      .length > 0 &&
     assignments.every(
       (a) =>
         a.guessed_player_id !==
@@ -1813,21 +2243,22 @@ async function maybeAutoAdvanceGuessing() {
 async function claimAndReveal() {
   if (!state.room) return;
 
-  const { data: claimed } =
-    await supabase
-      .from("rooms")
-      .update({
-        status: "scoring",
-      })
-      .eq(
-        "id",
-        state.room.id
-      )
-      .eq(
-        "status",
-        "guessing"
-      )
-      .select();
+  const {
+    data: claimed,
+  } = await supabase
+    .from("rooms")
+    .update({
+      status: "scoring",
+    })
+    .eq(
+      "id",
+      state.room.id
+    )
+    .eq(
+      "status",
+      "guessing"
+    )
+    .select();
 
   if (
     !claimed ||
@@ -1838,54 +2269,61 @@ async function claimAndReveal() {
 
   await refreshPlayers();
 
-  const { data: assignments } =
-    await supabase
-      .from("assignments")
-      .select(
-        "assigned_to, guessed_player_id, papers(author_id)"
-      )
-      .eq(
-        "room_id",
-        state.room.id
-      )
-      .eq(
-        "round",
-        state.room.round
-      );
+  const {
+    data: assignments,
+  } = await supabase
+    .from("assignments")
+    .select(
+      "assigned_to, guessed_player_id, papers(author_id)"
+    )
+    .eq(
+      "room_id",
+      state.room.id
+    )
+    .eq(
+      "round",
+      state.room.round
+    );
 
   const gained = {};
 
-  (assignments || []).forEach(
-    (a) => {
-      if (
-        a.guessed_player_id ===
-        a.papers.author_id
-      ) {
-        gained[a.assigned_to] =
-          (gained[a.assigned_to] ||
-            0) + 1;
-      }
+  (
+    assignments || []
+  ).forEach((a) => {
+    if (
+      a.guessed_player_id ===
+      a.papers.author_id
+    ) {
+      gained[
+        a.assigned_to
+      ] =
+        (gained[
+          a.assigned_to
+        ] || 0) + 1;
     }
-  );
+  });
 
   for (
     const [
       playerId,
       points,
-    ] of Object.entries(gained)
+    ] of Object.entries(
+      gained
+    )
   ) {
     const player =
       state.players.find(
         (p) =>
-          p.id === playerId
+          p.id ===
+          playerId
       );
 
     await supabase
       .from("players")
       .update({
         score:
-          (player?.score || 0) +
-          points,
+          (player?.score ||
+            0) + points,
       })
       .eq(
         "id",
@@ -1921,20 +2359,21 @@ async function renderReveal() {
     "reveal-topic"
   );
 
-  const { data: assignments } =
-    await supabase
-      .from("assignments")
-      .select(
-        "paper_id, assigned_to, guessed_player_id, papers(content, author_id)"
-      )
-      .eq(
-        "room_id",
-        state.room.id
-      )
-      .eq(
-        "round",
-        state.room.round
-      );
+  const {
+    data: assignments,
+  } = await supabase
+    .from("assignments")
+    .select(
+      "paper_id, assigned_to, guessed_player_id, papers(content, author_id)"
+    )
+    .eq(
+      "room_id",
+      state.room.id
+    )
+    .eq(
+      "round",
+      state.room.round
+    );
 
   const byId =
     Object.fromEntries(
@@ -1946,48 +2385,50 @@ async function renderReveal() {
   const papers =
     new Map();
 
-  const roundPoints = {};
+  const roundPoints =
+    {};
 
-  (assignments || []).forEach(
-    (a) => {
-      if (
-        !papers.has(
-          a.paper_id
-        )
-      ) {
-        papers.set(
-          a.paper_id,
-          {
-            paper:
-              a.papers,
-            guesses: [],
-          }
-        );
-      }
-
-      papers
-        .get(a.paper_id)
-        .guesses.push(a);
-
-      if (
-        a.guessed_player_id ===
-        a.papers.author_id
-      ) {
-        roundPoints[
-          a.assigned_to
-        ] =
-          (roundPoints[
-            a.assigned_to
-          ] || 0) + 1;
-      }
+  (
+    assignments || []
+  ).forEach((a) => {
+    if (
+      !papers.has(
+        a.paper_id
+      )
+    ) {
+      papers.set(
+        a.paper_id,
+        {
+          paper:
+            a.papers,
+          guesses: [],
+        }
+      );
     }
-  );
+
+    papers
+      .get(a.paper_id)
+      .guesses.push(a);
+
+    if (
+      a.guessed_player_id ===
+      a.papers.author_id
+    ) {
+      roundPoints[
+        a.assigned_to
+      ] =
+        (roundPoints[
+          a.assigned_to
+        ] || 0) + 1;
+    }
+  });
 
   const orderOf =
     (authorId) =>
       state.players.findIndex(
         (p) =>
-          p.id === authorId
+          p.id ===
+          authorId
       );
 
   const groups =
@@ -2126,9 +2567,7 @@ async function renderReveal() {
   board.innerHTML =
     "<strong>Scoreboard</strong>";
 
-  [
-    ...state.players,
-  ]
+  [...state.players]
     .sort(
       (a, b) =>
         (b.score || 0) -
@@ -2170,7 +2609,9 @@ async function renderReveal() {
         </span>
       `;
 
-      board.appendChild(row);
+      board.appendChild(
+        row
+      );
     });
 
   const host =
@@ -2191,7 +2632,7 @@ async function renderReveal() {
 }
 
 // ---------------------------------------------------------------------
-// REVEAL PAPER NAVIGATION
+// REVEAL NAVIGATION
 // ---------------------------------------------------------------------
 function showRevealPaper(
   animate = false
@@ -2208,7 +2649,11 @@ function showRevealPaper(
   const next =
     $("reveal-next");
 
-  if (!list || !prev || !next) {
+  if (
+    !list ||
+    !prev ||
+    !next
+  ) {
     return;
   }
 
@@ -2221,8 +2666,13 @@ function showRevealPaper(
         "";
     }
 
-    prev.classList.add("hidden");
-    next.classList.add("hidden");
+    prev.classList.add(
+      "hidden"
+    );
+
+    next.classList.add(
+      "hidden"
+    );
 
     return;
   }
@@ -2255,7 +2705,9 @@ function showRevealPaper(
 
   if ($("reveal-counter")) {
     $("reveal-counter").textContent =
-      `Paper ${state.revealIndex + 1} of ${total}`;
+      `Paper ${
+        state.revealIndex + 1
+      } of ${total}`;
   }
 
   prev.classList.remove(
@@ -2274,7 +2726,9 @@ function showRevealPaper(
     total - 1;
 }
 
-function moveReveal(direction) {
+function moveReveal(
+  direction
+) {
   state.revealIndex +=
     direction;
 
@@ -2285,9 +2739,14 @@ function moveReveal(direction) {
 // NEXT ROUND
 // ---------------------------------------------------------------------
 async function nextRound() {
-  if (startingNextRound) return;
+  if (startingNextRound) {
+    return;
+  }
 
-  if (!state.room || !isHost()) {
+  if (
+    !state.room ||
+    !isHost()
+  ) {
     return;
   }
 
@@ -2318,7 +2777,7 @@ async function nextRound() {
     const endsAt =
       new Date(
         Date.now() +
-        seconds * 1000
+          seconds * 1000
       ).toISOString();
 
     const update = {
@@ -2329,13 +2788,16 @@ async function nextRound() {
         endsAt,
     };
 
-    if (state.room.extempore) {
+    if (
+      state.room.extempore
+    ) {
       const {
         topic,
         used,
-      } = pickTopic(
-        state.room
-      );
+      } =
+        pickTopic(
+          state.room
+        );
 
       update.topic =
         topic;
@@ -2360,29 +2822,36 @@ async function nextRound() {
     if (error) {
       alert(
         "Could not start the next round: " +
-        error.message
+          error.message
       );
     }
-
   } finally {
-    startingNextRound = false;
+    startingNextRound =
+      false;
 
     if (button) {
-      button.disabled = false;
+      button.disabled =
+        false;
 
-      if (button.dataset.originalText) {
+      if (
+        button.dataset
+          .originalText
+      ) {
         button.textContent =
-          button.dataset.originalText;
+          button.dataset
+            .originalText;
       }
     }
   }
 }
 
-// ---------------------------------------------------------------------
+// =====================================================================
 // STARTUP LOADER
-// ---------------------------------------------------------------------
+// =====================================================================
 
-function setLoaderStatus(text) {
+function setLoaderStatus(
+  text
+) {
   const status =
     $("startup-status");
 
@@ -2392,50 +2861,138 @@ function setLoaderStatus(text) {
   }
 }
 
-function setLoaderProgress(percent) {
+function setLoaderProgress(
+  percent
+) {
+  // Clamp between 0 and 100.
+  percent = Math.max(
+    0,
+    Math.min(
+      100,
+      percent
+    )
+  );
+
   const bar =
     $("startup-progress");
+
+  const text =
+    document.querySelector(
+      ".startup-percent"
+    );
 
   if (bar) {
     bar.style.width =
       `${percent}%`;
+
+    // Helps the browser paint immediately.
+    bar.style.transform =
+      `translateZ(0)`;
+  }
+
+  if (text) {
+    text.textContent =
+      `${percent}%`;
+  }
+
+  // Force layout so progress isn't visually delayed.
+  if (bar) {
+    void bar.offsetWidth;
   }
 }
 
-function preloadImage(src) {
+function preloadImage(
+  src
+) {
   return new Promise(
     (resolve) => {
       const img =
         new Image();
 
-      img.onload =
-        () => resolve(true);
+      let finished = false;
 
-      img.onerror =
-        () => resolve(false);
+      const done = (result) => {
+        if (finished) return;
+
+        finished = true;
+
+        resolve(result);
+      };
+
+      img.onload = () =>
+        done(true);
+
+      img.onerror = () =>
+        done(false);
 
       img.src = src;
+
+      // Never let one broken asset
+      // freeze the entire startup screen.
+      setTimeout(
+        () => done(false),
+        3000
+      );
     }
   );
 }
 
+// ---------------------------------------------------------------------
+// PRELOAD AVATARS
+// ---------------------------------------------------------------------
 async function preloadAvatars() {
   const avatarBase =
     "assets/avatars/";
 
-  const promises =
-    AVATARS.map(
-      (avatar) =>
-        preloadImage(
-          `${avatarBase}${avatar}`
-        )
+  const total =
+    AVATARS.length;
+
+  for (
+    let i = 0;
+    i < total;
+    i++
+  ) {
+    const avatar =
+      AVATARS[i];
+
+    setLoaderStatus(
+      `Loading avatar ${
+        i + 1
+      } of ${total}...`
     );
 
-  await Promise.all(
-    promises
-  );
+    await preloadImage(
+      `${avatarBase}${avatar}`
+    );
+
+    // Avatar loading:
+    // 10% → 40%
+    const progress =
+      10 +
+      Math.round(
+        ((i + 1) /
+          total) *
+          30
+      );
+
+    setLoaderProgress(
+      progress
+    );
+
+    // Give browser a frame
+    // to paint the progress bar.
+    await new Promise(
+      (resolve) =>
+        requestAnimationFrame(
+          resolve
+        )
+    );
+  }
 }
 
+// ---------------------------------------------------------------------
+// DOM CHECK
+// ---------------------------------------------------------------------
 function checkRequiredElements() {
   const required = [
     "screen-name",
@@ -2478,7 +3035,7 @@ function initializeButtonFunctions() {
 
   renderAvatarPicker();
 
-  // Avatar
+  // AVATAR
   bindClick(
     "avatar-prev",
     () => changeAvatar(-1)
@@ -2489,7 +3046,7 @@ function initializeButtonFunctions() {
     () => changeAvatar(1)
   );
 
-  // Name / mode
+  // NAME / MODE
   bindClick(
     "btn-continue",
     continueFromName
@@ -2500,7 +3057,7 @@ function initializeButtonFunctions() {
     backToName
   );
 
-  // Room
+  // ROOM
   bindClick(
     "btn-create",
     createRoom
@@ -2531,7 +3088,7 @@ function initializeButtonFunctions() {
     leaveRoom
   );
 
-  // Extempore
+  // EXTEMPORE
   bindChange(
     "toggle-extempore",
     toggleExtempore
@@ -2553,13 +3110,14 @@ function initializeButtonFunctions() {
           event.key === "Enter"
         ) {
           event.preventDefault();
+
           addCustomTopic();
         }
       }
     );
   }
 
-  // Reveal
+  // REVEAL
   bindClick(
     "reveal-prev",
     () => moveReveal(-1)
@@ -2570,7 +3128,7 @@ function initializeButtonFunctions() {
     () => moveReveal(1)
   );
 
-  // Keyboard
+  // LEFT / RIGHT ARROWS
   document.addEventListener(
     "keydown",
     (event) => {
@@ -2618,7 +3176,7 @@ function initializeButtonFunctions() {
     }
   );
 
-  // Enter on name
+  // ENTER → CONTINUE
   const nameInput =
     $("input-name");
 
@@ -2627,16 +3185,18 @@ function initializeButtonFunctions() {
       "keydown",
       (event) => {
         if (
-          event.key === "Enter"
+          event.key ===
+          "Enter"
         ) {
           event.preventDefault();
+
           continueFromName();
         }
       }
     );
   }
 
-  // Enter on room code
+  // ENTER → JOIN
   const codeInput =
     $("input-code");
 
@@ -2645,9 +3205,11 @@ function initializeButtonFunctions() {
       "keydown",
       (event) => {
         if (
-          event.key === "Enter"
+          event.key ===
+          "Enter"
         ) {
           event.preventDefault();
+
           joinRoom();
         }
       }
@@ -2655,44 +3217,93 @@ function initializeButtonFunctions() {
   }
 }
 
-// ---------------------------------------------------------------------
+// =====================================================================
 // STARTUP
-// ---------------------------------------------------------------------
+// =====================================================================
 async function startup() {
   try {
+    // ---------------------------------------------------------------
+    // 0%
+    // ---------------------------------------------------------------
     setLoaderStatus(
       "Preparing Blank Page..."
     );
 
-    setLoaderProgress(10);
+    setLoaderProgress(5);
 
-    // Make sure an old session can never put the user
-    // into a stale room.
+    // ---------------------------------------------------------------
+    // 10%
+    // ---------------------------------------------------------------
     clearSession();
 
     setLoaderStatus(
-      "Loading avatars..."
+      "Preparing a fresh session..."
     );
 
+    setLoaderProgress(10);
+
+    await new Promise(
+      (resolve) =>
+        requestAnimationFrame(
+          resolve
+        )
+    );
+
+    // ---------------------------------------------------------------
+    // 10% → 40%
+    // ---------------------------------------------------------------
     await preloadAvatars();
 
-    setLoaderProgress(40);
-
+    // ---------------------------------------------------------------
+    // 45%
+    // ---------------------------------------------------------------
     setLoaderStatus(
       "Preparing game interface..."
     );
 
+    setLoaderProgress(45);
+
+    await new Promise(
+      (resolve) =>
+        requestAnimationFrame(
+          resolve
+        )
+    );
+
+    // ---------------------------------------------------------------
+    // 55%
+    // ---------------------------------------------------------------
     checkRequiredElements();
+
+    setLoaderProgress(55);
+
+    // ---------------------------------------------------------------
+    // 65%
+    // ---------------------------------------------------------------
+    setLoaderStatus(
+      "Loading buttons and controls..."
+    );
 
     initializeButtonFunctions();
 
     setLoaderProgress(65);
 
+    // ---------------------------------------------------------------
+    // 75%
+    // ---------------------------------------------------------------
     setLoaderStatus(
       "Preparing player controls..."
     );
 
-    // Initial screen state
+    setLoaderProgress(75);
+
+    // ---------------------------------------------------------------
+    // 85%
+    // ---------------------------------------------------------------
+    setLoaderStatus(
+      "Setting up the game..."
+    );
+
     $("room-bar")?.classList.add(
       "hidden"
     );
@@ -2710,12 +3321,13 @@ async function startup() {
 
     setLoaderProgress(85);
 
+    // ---------------------------------------------------------------
+    // 95%
+    // ---------------------------------------------------------------
     setLoaderStatus(
       "Almost ready..."
     );
 
-    // Give the browser one frame to finish painting
-    // all preloaded assets before removing the loader.
     await new Promise(
       (resolve) =>
         requestAnimationFrame(
@@ -2726,20 +3338,28 @@ async function startup() {
         )
     );
 
-    setLoaderProgress(100);
+    setLoaderProgress(95);
 
+    // ---------------------------------------------------------------
+    // 100%
+    // ---------------------------------------------------------------
     setLoaderStatus(
       "Ready!"
     );
+
+    setLoaderProgress(100);
 
     await new Promise(
       (resolve) =>
         setTimeout(
           resolve,
-          250
+          300
         )
     );
 
+    // ---------------------------------------------------------------
+    // REMOVE LOADER
+    // ---------------------------------------------------------------
     const loader =
       $("startup-loader");
 
@@ -2759,15 +3379,31 @@ async function startup() {
       error
     );
 
-    // Even if the loader encounters a non-critical
-    // problem, don't leave the player stuck on it.
-    initializeButtonFunctions();
+    // IMPORTANT:
+    // Even if something goes wrong,
+    // don't trap the user behind the loader.
+    try {
+      initializeButtonFunctions();
 
-    $("room-bar")?.classList.add(
-      "hidden"
-    );
+      $("room-bar")?.classList.add(
+        "hidden"
+      );
 
-    showScreen("name");
+      showScreen("name");
+
+      setLoaderStatus(
+        "Ready!"
+      );
+
+      setLoaderProgress(
+        100
+      );
+    } catch (fallbackError) {
+      console.error(
+        "[Blank Page] Loader fallback error:",
+        fallbackError
+      );
+    }
 
     const loader =
       $("startup-loader");
@@ -2784,5 +3420,7 @@ async function startup() {
   }
 }
 
-// Start everything after the module has loaded.
+// =====================================================================
+// GO
+// =====================================================================
 startup();
