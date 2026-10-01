@@ -3,8 +3,9 @@ import { AVATARS, avatarMarkup } from "./avatars.js";
 import { BUILT_IN_TOPICS } from "./topics.js";
 
 const $ = (id) => document.getElementById(id);
-const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O/1/I
-const MAX_PLAYERS = 8; // room limit
+
+const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+const MAX_PLAYERS = 8;
 const MAX_CUSTOM_TOPICS = 10;
 
 // ---------------------------------------------------------------------
@@ -26,357 +27,48 @@ const state = {
   revealRound: null,
 };
 
-// The logo stays up through the name, create/join and lobby screens,
-// and disappears once the game actually starts.
+// Prevent accidental double clicks while network requests are running.
+let creatingRoom = false;
+let joiningRoom = false;
+let leavingRoom = false;
+let startingGame = false;
+let submittingPaper = false;
+let startingNextRound = false;
+let initialized = false;
+
+// ---------------------------------------------------------------------
+// screens
+// ---------------------------------------------------------------------
 const TITLE_SCREENS = ["name", "mode", "lobby"];
-// ---------------------------------------------------------------------
-// STARTUP LOADER
-// ---------------------------------------------------------------------
-
-const STARTUP_REQUIRED_ELEMENTS = [
-  "site-title",
-  "screen-name",
-  "screen-mode",
-  "screen-lobby",
-  "screen-writing",
-  "screen-guessing",
-  "screen-reveal",
-
-  "input-name",
-  "input-code",
-
-  "avatar-preview",
-  "avatar-prev",
-  "avatar-next",
-
-  "btn-continue",
-  "btn-back-name",
-  "btn-create",
-  "btn-join",
-
-  "room-bar",
-  "room-bar-code",
-
-  "lobby-code",
-  "lobby-players",
-  "lobby-host-controls",
-  "btn-start",
-
-  "player-strip",
-
-  "write-round",
-  "write-topic",
-  "write-topic-text",
-  "write-text",
-  "write-timer",
-  "btn-submit-paper",
-
-  "guess-player-grid",
-  "guess-progress",
-  "guess-paper-text",
-  "guess-status",
-
-  "reveal-round",
-  "reveal-topic",
-  "reveal-list",
-  "reveal-prev",
-  "reveal-next",
-  "reveal-counter",
-  "scoreboard",
-  "reveal-host-controls",
-
-  "toggle-extempore",
-  "extempore-options",
-  "lobby-mode-note",
-
-  "input-topic",
-  "btn-add-topic",
-  "custom-topic-list",
-
-  "btn-next-round",
-  "btn-leave"
-];
-
-function updateStartupLoader(status, progress) {
-  const statusEl = $("startup-loader-status");
-  const progressBar = $("startup-loader-progress-bar");
-  const percentEl = $("startup-loader-percent");
-
-  if (statusEl) {
-    statusEl.textContent = status;
-  }
-
-  if (progressBar) {
-    progressBar.style.width = `${progress}%`;
-  }
-
-  if (percentEl) {
-    percentEl.textContent = `${Math.round(progress)}%`;
-  }
-}
-
-function waitForPaint() {
-  return new Promise((resolve) => {
-    requestAnimationFrame(() => {
-      requestAnimationFrame(resolve);
-    });
-  });
-}
-
-async function preloadAvatars() {
-  const total = AVATARS.length;
-
-  if (total === 0) {
-    return;
-  }
-
-  let loaded = 0;
-
-  const avatarPromises = AVATARS.map((avatar) => {
-    return new Promise((resolve) => {
-      const img = new Image();
-
-      img.onload = () => {
-        loaded++;
-
-        const progress =
-          25 + (loaded / total) * 35;
-
-        updateStartupLoader(
-          `Loading avatars (${loaded}/${total})…`,
-          progress
-        );
-
-        resolve();
-      };
-
-      img.onerror = () => {
-        // Don't block the entire game if one optional avatar fails.
-        loaded++;
-
-        const progress =
-          25 + (loaded / total) * 35;
-
-        updateStartupLoader(
-          `Loading avatars (${loaded}/${total})…`,
-          progress
-        );
-
-        resolve();
-      };
-
-      img.src = `assets/avatars/${avatar}`;
-    });
-  });
-
-  await Promise.all(avatarPromises);
-}
-
-function checkRequiredElements() {
-  const missing =
-    STARTUP_REQUIRED_ELEMENTS.filter(
-      (id) => !$(id)
-    );
-
-  if (missing.length > 0) {
-    console.warn(
-      "Startup check: missing elements:",
-      missing
-    );
-  }
-
-  return missing;
-}
-
-function initializeButtonFunctions() {
-  updateStartupLoader(
-    "Connecting controls…",
-    70
-  );
-
-  // These assignments don't need to be called yet.
-  // They are initialized here so the UI is ready before
-  // the startup screen disappears.
-
-  $("avatar-prev").onclick =
-    () => changeAvatar(-1);
-
-  $("avatar-next").onclick =
-    () => changeAvatar(1);
-
-  $("btn-continue").onclick =
-    continueFromName;
-
-  $("btn-back-name").onclick =
-    backToName;
-
-  $("btn-create").onclick =
-    createRoom;
-
-  $("btn-join").onclick =
-    joinRoom;
-
-  $("btn-start").onclick =
-    startGame;
-
-  $("btn-submit-paper").onclick =
-    submitPaper;
-
-  $("btn-next-round").onclick =
-    nextRound;
-
-  $("btn-leave").onclick =
-    leaveRoom;
-
-  $("toggle-extempore").onchange =
-    toggleExtempore;
-
-  $("btn-add-topic").onclick =
-    addCustomTopic;
-
-  $("input-topic").addEventListener(
-    "keydown",
-    (event) => {
-      if (event.key === "Enter") {
-        addCustomTopic();
-      }
-    }
-  );
-
-  $("reveal-prev").onclick =
-    () => moveReveal(-1);
-
-  $("reveal-next").onclick =
-    () => moveReveal(1);
-
-  $("input-name").addEventListener(
-    "keydown",
-    (event) => {
-      if (event.key === "Enter") {
-        continueFromName();
-      }
-    }
-  );
-
-  $("input-code").addEventListener(
-    "keydown",
-    (event) => {
-      if (event.key === "Enter") {
-        joinRoom();
-      }
-    }
-  );
-}
-
-function initializeKeyboardControls() {
-  document.addEventListener(
-    "keydown",
-    (event) => {
-      if (
-        !$("screen-reveal")
-          .classList
-          .contains("active")
-      ) {
-        return;
-      }
-
-      if (
-        event.key === "ArrowLeft" &&
-        !$("reveal-prev").disabled
-      ) {
-        moveReveal(-1);
-      }
-
-      if (
-        event.key === "ArrowRight" &&
-        !$("reveal-next").disabled
-      ) {
-        moveReveal(1);
-      }
-    }
-  );
-}
-
-async function startGameStartup() {
-  const loader = $("startup-loader");
-
-  // Make sure the loader itself is visible while loading.
-  loader?.classList.remove("hidden");
-
-  updateStartupLoader(
-    "Starting Blank Page…",
-    5
-  );
-
-  await waitForPaint();
-
-  updateStartupLoader(
-    "Checking game interface…",
-    15
-  );
-
-  checkRequiredElements();
-
-  await waitForPaint();
-
-  // Preload every avatar.
-  await preloadAvatars();
-
-  await waitForPaint();
-
-  updateStartupLoader(
-    "Preparing avatar picker…",
-    65
-  );
-
-  renderAvatarPicker();
-
-  await waitForPaint();
-
-  initializeButtonFunctions();
-
-  await waitForPaint();
-
-  initializeKeyboardControls();
-
-  updateStartupLoader(
-    "Preparing game screens…",
-    85
-  );
-
-  clearSession();
-
-  $("room-bar").classList.add("hidden");
-
-  showScreen("name");
-
-  await waitForPaint();
-
-  updateStartupLoader(
-    "Everything is ready!",
-    100
-  );
-
-  // Let the user actually see the completed state
-  // for a tiny moment instead of an abrupt flash.
-  await new Promise((resolve) =>
-    setTimeout(resolve, 250)
-  );
-
-  loader?.classList.add("hidden");
-}
 
 function showScreen(name) {
-  document.querySelectorAll(".screen").forEach((s) => s.classList.remove("active"));
-  $(`screen-${name}`).classList.add("active");
-  $("site-title").classList.toggle("hidden", !TITLE_SCREENS.includes(name));
+  document.querySelectorAll(".screen").forEach((s) => {
+    s.classList.remove("active");
+  });
+
+  const screen = $(`screen-${name}`);
+
+  if (screen) {
+    screen.classList.add("active");
+  }
+
+  const title = $("site-title");
+
+  if (title) {
+    title.classList.toggle("hidden", !TITLE_SCREENS.includes(name));
+  }
 }
 
+// ---------------------------------------------------------------------
+// utilities
+// ---------------------------------------------------------------------
 function randomCode(len = 5) {
   let out = "";
+
   for (let i = 0; i < len; i++) {
     out += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)];
   }
+
   return out;
 }
 
@@ -391,256 +83,8 @@ function shuffle(arr) {
   return a;
 }
 
-// Session persistence is intentionally disabled.
 function clearSession() {
   localStorage.removeItem("bp_session");
-}
-
-// ---------------------------------------------------------------------
-// avatar picker
-// ---------------------------------------------------------------------
-function renderAvatarPicker() {
-  const preview = $("avatar-preview");
-  if (!preview) return;
-
-  preview.innerHTML = avatarMarkup(
-    state.selectedAvatar,
-    "avatar-svg avatar-preview-img"
-  );
-
-  preview.classList.remove("pop");
-  void preview.offsetWidth;
-  preview.classList.add("pop");
-}
-
-function changeAvatar(direction) {
-  const current = AVATARS.indexOf(state.selectedAvatar);
-  const next = (current + direction + AVATARS.length) % AVATARS.length;
-
-  state.selectedAvatar = AVATARS[next];
-  renderAvatarPicker();
-}
-
-function continueFromName() {
-  const name = $("input-name").value.trim();
-
-  if (!name) {
-    return setError("name-error", "Enter your name first.");
-  }
-
-  $("mode-name").textContent = name;
-  $("mode-avatar").innerHTML = avatarMarkup(
-    state.selectedAvatar,
-    "avatar-svg avatar-mode-img"
-  );
-
-  showScreen("mode");
-}
-
-function backToName() {
-  showScreen("name");
-  $("mode-name").textContent = "";
-  $("mode-avatar").textContent = "";
-}
-
-// ---------------------------------------------------------------------
-// create / join
-// ---------------------------------------------------------------------
-async function createRoom() {
-  const name = $("input-name").value.trim();
-
-  if (!name) {
-    return setError("name-error", "Enter your name first.");
-  }
-
-  let code;
-  let existing;
-
-  do {
-    code = randomCode();
-
-    ({ data: existing } = await supabase
-      .from("rooms")
-      .select("id")
-      .eq("code", code)
-      .maybeSingle());
-
-  } while (existing);
-
-  const { data: room, error } = await supabase
-    .from("rooms")
-    .insert({ code })
-    .select()
-    .single();
-
-  if (error) {
-    return setError("name-error", error.message);
-  }
-
-  const { data: player, error: pErr } = await supabase
-    .from("players")
-    .insert({
-      room_id: room.id,
-      name,
-      avatar: state.selectedAvatar,
-      is_host: true
-    })
-    .select()
-    .single();
-
-  if (pErr) {
-    return setError("name-error", pErr.message);
-  }
-
-  clearSession();
-  enterRoom(room.id, player.id);
-}
-
-async function joinRoom() {
-  const name = $("input-name").value.trim();
-  const code = $("input-code").value.trim().toUpperCase();
-
-  if (!name) {
-    return setError("name-error", "Enter your name first.");
-  }
-
-  if (!code) {
-    return setError("name-error", "Enter a room code.");
-  }
-
-  const { data: room, error } = await supabase
-    .from("rooms")
-    .select()
-    .eq("code", code)
-    .maybeSingle();
-
-  if (error || !room) {
-    return setError("name-error", "Room not found.");
-  }
-
-  if (room.status !== "lobby") {
-    return setError("name-error", "That game already started.");
-  }
-
-  const { count } = await supabase
-    .from("players")
-    .select("id", { count: "exact", head: true })
-    .eq("room_id", room.id);
-
-  if ((count ?? 0) >= MAX_PLAYERS) {
-    return setError(
-      "name-error",
-      `Room is full (max ${MAX_PLAYERS} players).`
-    );
-  }
-
-  const { data: player, error: pErr } = await supabase
-    .from("players")
-    .insert({
-      room_id: room.id,
-      name,
-      avatar: state.selectedAvatar,
-      is_host: false
-    })
-    .select()
-    .single();
-
-  if (pErr) {
-    return setError("name-error", pErr.message);
-  }
-
-  clearSession();
-  enterRoom(room.id, player.id);
-}
-
-function setError(id, msg) {
-  $(id).textContent = msg;
-
-  setTimeout(() => {
-    $(id).textContent = "";
-  }, 4000);
-}
-
-// ---------------------------------------------------------------------
-// entering a room + realtime subscription
-// ---------------------------------------------------------------------
-async function enterRoom(roomId, playerId) {
-  state.playerId = playerId;
-
-  const { data: room } = await supabase
-    .from("rooms")
-    .select()
-    .eq("id", roomId)
-    .single();
-
-  state.room = room;
-
-  await refreshPlayers();
-
-  subscribeRealtime(roomId);
-
-  $("room-bar").classList.remove("hidden");
-  $("room-bar-code").textContent = room.code;
-
-  renderForStatus();
-  await renderPlayerStrip();
-}
-
-async function leaveRoom() {
-  clearInterval(state.timerHandle);
-  state.timerHandle = null;
-
-  if (state.channel) {
-    await supabase.removeChannel(state.channel);
-  }
-
-  if (isHost()) {
-    const next = state.players.find((p) => p.id !== state.playerId);
-
-    if (next) {
-      await supabase
-        .from("players")
-        .update({ is_host: true })
-        .eq("id", next.id);
-    }
-  }
-
-  if (state.playerId) {
-    await supabase
-      .from("players")
-      .delete()
-      .eq("id", state.playerId);
-  }
-
-  clearSession();
-
-  state.room = null;
-  state.players = [];
-  state.playerId = null;
-  state.channel = null;
-  state.guessTarget = null;
-  state.currentWritingRound = null;
-
-  $("room-bar").classList.add("hidden");
-  $("player-strip").classList.add("hidden");
-  $("player-strip").innerHTML = "";
-  $("room-bar-code").textContent = "";
-  $("input-code").value = "";
-  $("write-text").value = "";
-  $("write-status").textContent = "";
-  $("input-topic").value = "";
-
-  showScreen("name");
-}
-
-async function refreshPlayers() {
-  const { data } = await supabase
-    .from("players")
-    .select()
-    .eq("room_id", state.room.id)
-    .order("joined_at");
-
-  state.players = data || [];
 }
 
 function escapeHtml(value) {
@@ -653,60 +97,457 @@ function escapeHtml(value) {
   }[char]));
 }
 
-// ---------------------------------------------------------------------
-// HOST KICK PLAYER
-// ---------------------------------------------------------------------
-async function kickPlayer(playerId, playerName, button) {
-  // Only the current host can kick.
-  if (!isHost()) return;
+function setError(id, msg) {
+  const el = $(id);
 
-  // Never allow the host to kick themselves.
-  if (playerId === state.playerId) return;
+  if (!el) return;
 
-  // Prevent double clicking.
-  if (button.disabled) return;
+  el.textContent = msg;
 
-  const confirmed = confirm(`Kick ${playerName} from the room?`);
-
-  if (!confirmed) return;
-
-  // Immediately disable the button.
-  button.disabled = true;
-  button.textContent = "Kicking…";
-
-  try {
-    const { error } = await supabase
-      .from("players")
-      .delete()
-      .eq("id", playerId)
-      .eq("room_id", state.room.id)
-      .eq("is_host", false);
-
-    if (error) {
-      console.error("Kick failed:", error);
-
-      button.disabled = false;
-      button.textContent = "Kick";
-
-      setError("name-error", "Could not kick that player.");
-      return;
+  setTimeout(() => {
+    if (el.textContent === msg) {
+      el.textContent = "";
     }
+  }, 4000);
+}
 
-    // Update host UI immediately.
-    await refreshPlayers();
-    renderLobby();
+// Safe event binder.
+// If an element is missing, the game doesn't crash during startup.
+function bindClick(id, handler) {
+  const el = $(id);
 
-  } catch (error) {
-    console.error("Kick error:", error);
+  if (!el) {
+    console.warn(`[Blank Page] Missing element: #${id}`);
+    return;
+  }
 
-    button.disabled = false;
-    button.textContent = "Kick";
+  el.onclick = handler;
+}
+
+function bindChange(id, handler) {
+  const el = $(id);
+
+  if (!el) {
+    console.warn(`[Blank Page] Missing element: #${id}`);
+    return;
+  }
+
+  el.onchange = handler;
+}
+
+// ---------------------------------------------------------------------
+// avatar picker
+// ---------------------------------------------------------------------
+function renderAvatarPicker() {
+  const preview = $("avatar-preview");
+
+  if (!preview) return;
+
+  preview.innerHTML = avatarMarkup(
+    state.selectedAvatar,
+    "avatar-svg avatar-preview-img"
+  );
+
+  preview.classList.remove("pop");
+
+  void preview.offsetWidth;
+
+  preview.classList.add("pop");
+}
+
+function changeAvatar(direction) {
+  const current = AVATARS.indexOf(state.selectedAvatar);
+
+  const next =
+    (current + direction + AVATARS.length) % AVATARS.length;
+
+  state.selectedAvatar = AVATARS[next];
+
+  renderAvatarPicker();
+}
+
+function continueFromName() {
+  const input = $("input-name");
+
+  if (!input) return;
+
+  const name = input.value.trim();
+
+  if (!name) {
+    return setError("name-error", "Enter your name first.");
+  }
+
+  if ($("mode-name")) {
+    $("mode-name").textContent = name;
+  }
+
+  if ($("mode-avatar")) {
+    $("mode-avatar").innerHTML = avatarMarkup(
+      state.selectedAvatar,
+      "avatar-svg avatar-mode-img"
+    );
+  }
+
+  showScreen("mode");
+}
+
+function backToName() {
+  showScreen("name");
+
+  if ($("mode-name")) {
+    $("mode-name").textContent = "";
+  }
+
+  if ($("mode-avatar")) {
+    $("mode-avatar").textContent = "";
   }
 }
 
 // ---------------------------------------------------------------------
-// player strip
+// CREATE ROOM
 // ---------------------------------------------------------------------
+async function createRoom() {
+  if (creatingRoom) return;
+
+  creatingRoom = true;
+
+  const button = $("btn-create");
+
+  if (button) {
+    button.disabled = true;
+    button.classList.add("loading");
+
+    if (!button.dataset.originalText) {
+      button.dataset.originalText = button.textContent;
+    }
+
+    button.textContent = "Creating...";
+  }
+
+  try {
+    const input = $("input-name");
+
+    if (!input) return;
+
+    const name = input.value.trim();
+
+    if (!name) {
+      setError("name-error", "Enter your name first.");
+      return;
+    }
+
+    let code;
+    let existing;
+
+    do {
+      code = randomCode();
+
+      const result = await supabase
+        .from("rooms")
+        .select("id")
+        .eq("code", code)
+        .maybeSingle();
+
+      existing = result.data;
+    } while (existing);
+
+    const { data: room, error } = await supabase
+      .from("rooms")
+      .insert({ code })
+      .select()
+      .single();
+
+    if (error) {
+      setError("name-error", error.message);
+      return;
+    }
+
+    const { data: player, error: pErr } = await supabase
+      .from("players")
+      .insert({
+        room_id: room.id,
+        name,
+        avatar: state.selectedAvatar,
+        is_host: true,
+      })
+      .select()
+      .single();
+
+    if (pErr) {
+      setError("name-error", pErr.message);
+      return;
+    }
+
+    clearSession();
+
+    await enterRoom(room.id, player.id);
+
+  } catch (error) {
+    console.error("Create room error:", error);
+    setError("name-error", "Could not create the room.");
+  } finally {
+    creatingRoom = false;
+
+    if (button) {
+      button.disabled = false;
+      button.classList.remove("loading");
+
+      if (button.dataset.originalText) {
+        button.textContent = button.dataset.originalText;
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------
+// JOIN ROOM
+// ---------------------------------------------------------------------
+async function joinRoom() {
+  if (joiningRoom) return;
+
+  joiningRoom = true;
+
+  const button = $("btn-join");
+
+  if (button) {
+    button.disabled = true;
+    button.classList.add("loading");
+
+    if (!button.dataset.originalText) {
+      button.dataset.originalText = button.textContent;
+    }
+
+    button.textContent = "Joining...";
+  }
+
+  try {
+    const nameInput = $("input-name");
+    const codeInput = $("input-code");
+
+    if (!nameInput || !codeInput) return;
+
+    const name = nameInput.value.trim();
+    const code = codeInput.value.trim().toUpperCase();
+
+    if (!name) {
+      setError("name-error", "Enter your name first.");
+      return;
+    }
+
+    if (!code) {
+      setError("name-error", "Enter a room code.");
+      return;
+    }
+
+    const { data: room, error } = await supabase
+      .from("rooms")
+      .select()
+      .eq("code", code)
+      .maybeSingle();
+
+    if (error || !room) {
+      setError("name-error", "Room not found.");
+      return;
+    }
+
+    if (room.status !== "lobby") {
+      setError("name-error", "That game already started.");
+      return;
+    }
+
+    const { count } = await supabase
+      .from("players")
+      .select("id", {
+        count: "exact",
+        head: true,
+      })
+      .eq("room_id", room.id);
+
+    if ((count ?? 0) >= MAX_PLAYERS) {
+      setError(
+        "name-error",
+        `Room is full (max ${MAX_PLAYERS} players).`
+      );
+      return;
+    }
+
+    const { data: player, error: pErr } = await supabase
+      .from("players")
+      .insert({
+        room_id: room.id,
+        name,
+        avatar: state.selectedAvatar,
+        is_host: false,
+      })
+      .select()
+      .single();
+
+    if (pErr) {
+      setError("name-error", pErr.message);
+      return;
+    }
+
+    clearSession();
+
+    await enterRoom(room.id, player.id);
+
+  } catch (error) {
+    console.error("Join room error:", error);
+    setError("name-error", "Could not join the room.");
+  } finally {
+    joiningRoom = false;
+
+    if (button) {
+      button.disabled = false;
+      button.classList.remove("loading");
+
+      if (button.dataset.originalText) {
+        button.textContent = button.dataset.originalText;
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------
+// ENTER ROOM
+// ---------------------------------------------------------------------
+async function enterRoom(roomId, playerId) {
+  state.playerId = playerId;
+
+  const { data: room, error } = await supabase
+    .from("rooms")
+    .select()
+    .eq("id", roomId)
+    .single();
+
+  if (error || !room) {
+    setError("name-error", "Could not enter the room.");
+    return;
+  }
+
+  state.room = room;
+
+  await refreshPlayers();
+
+  subscribeRealtime(roomId);
+
+  const roomBar = $("room-bar");
+
+  if (roomBar) {
+    roomBar.classList.remove("hidden");
+  }
+
+  if ($("room-bar-code")) {
+    $("room-bar-code").textContent = room.code;
+  }
+
+  renderForStatus();
+
+  await renderPlayerStrip();
+}
+
+// ---------------------------------------------------------------------
+// LEAVE ROOM
+// ---------------------------------------------------------------------
+async function leaveRoom() {
+  if (leavingRoom) return;
+
+  leavingRoom = true;
+
+  try {
+    clearInterval(state.timerHandle);
+    state.timerHandle = null;
+
+    if (state.channel) {
+      await supabase.removeChannel(state.channel);
+      state.channel = null;
+    }
+
+    if (isHost()) {
+      const next = state.players.find(
+        (p) => p.id !== state.playerId
+      );
+
+      if (next) {
+        await supabase
+          .from("players")
+          .update({ is_host: true })
+          .eq("id", next.id);
+      }
+    }
+
+    if (state.playerId) {
+      await supabase
+        .from("players")
+        .delete()
+        .eq("id", state.playerId);
+    }
+
+    clearSession();
+
+    state.room = null;
+    state.players = [];
+    state.playerId = null;
+    state.channel = null;
+    state.guessTarget = null;
+    state.currentWritingRound = null;
+    state.revealCards = [];
+    state.revealIndex = 0;
+    state.revealRound = null;
+
+    $("room-bar")?.classList.add("hidden");
+    $("player-strip")?.classList.add("hidden");
+
+    if ($("player-strip")) {
+      $("player-strip").innerHTML = "";
+    }
+
+    if ($("room-bar-code")) {
+      $("room-bar-code").textContent = "";
+    }
+
+    if ($("input-code")) {
+      $("input-code").value = "";
+    }
+
+    if ($("write-text")) {
+      $("write-text").value = "";
+    }
+
+    if ($("write-status")) {
+      $("write-status").textContent = "";
+    }
+
+    if ($("input-topic")) {
+      $("input-topic").value = "";
+    }
+
+    showScreen("name");
+
+  } catch (error) {
+    console.error("Leave room error:", error);
+  } finally {
+    leavingRoom = false;
+  }
+}
+
+// ---------------------------------------------------------------------
+// PLAYERS
+// ---------------------------------------------------------------------
+async function refreshPlayers() {
+  if (!state.room) return;
+
+  const { data, error } = await supabase
+    .from("players")
+    .select()
+    .eq("room_id", state.room.id)
+    .order("joined_at");
+
+  if (!error) {
+    state.players = data || [];
+  }
+}
+
 async function renderPlayerStrip() {
   const strip = $("player-strip");
 
@@ -714,13 +555,18 @@ async function renderPlayerStrip() {
 
   const status = state.room.status;
 
-  const show = ["writing", "guessing", "reveal"].includes(status);
+  const show = [
+    "writing",
+    "guessing",
+    "reveal",
+  ].includes(status);
 
   strip.classList.toggle("hidden", !show);
 
   if (!show) return;
 
   let doneIds = new Set();
+
   const progress = {};
 
   if (status === "writing") {
@@ -742,10 +588,11 @@ async function renderPlayerStrip() {
       .eq("round", state.room.round);
 
     (assignments || []).forEach((a) => {
-      const pr = (progress[a.assigned_to] ||= {
-        total: 0,
-        answered: 0
-      });
+      const pr =
+        (progress[a.assigned_to] ||= {
+          total: 0,
+          answered: 0,
+        });
 
       pr.total++;
 
@@ -759,7 +606,10 @@ async function renderPlayerStrip() {
         .filter((pl) => {
           const pr = progress[pl.id];
 
-          return !pr || pr.answered >= pr.total;
+          return (
+            !pr ||
+            pr.answered >= pr.total
+          );
         })
         .map((pl) => pl.id)
     );
@@ -786,13 +636,13 @@ async function renderPlayerStrip() {
 
     const statusLabel =
       status === "writing"
-        ? (done ? "Done" : "Writing…")
+        ? done
+          ? "Done"
+          : "Writing…"
         : status === "guessing"
-          ? (
-              done
-                ? "Done"
-                : `${progress[p.id]?.answered ?? 0}/${progress[p.id]?.total ?? 0}`
-            )
+          ? done
+            ? "Done"
+            : `${progress[p.id]?.answered ?? 0}/${progress[p.id]?.total ?? 0}`
           : "Done";
 
     card.innerHTML = `
@@ -821,7 +671,7 @@ async function renderPlayerStrip() {
 }
 
 // ---------------------------------------------------------------------
-// realtime
+// REALTIME
 // ---------------------------------------------------------------------
 function subscribeRealtime(roomId) {
   if (state.channel) {
@@ -831,14 +681,14 @@ function subscribeRealtime(roomId) {
   state.channel = supabase
     .channel(`room-${roomId}`)
 
-    // ROOM CHANGES
+    // ROOMS
     .on(
       "postgres_changes",
       {
         event: "*",
         schema: "public",
         table: "rooms",
-        filter: `id=eq.${roomId}`
+        filter: `id=eq.${roomId}`,
       },
       async (payload) => {
         const previousStatus = state.room?.status;
@@ -846,13 +696,13 @@ function subscribeRealtime(roomId) {
 
         state.room = payload.new;
 
-        // During writing, don't rerender the form just because
-        // something else changed.
+        // Don't rebuild the writing screen while someone is typing.
         if (
           state.room.status === "writing" &&
           previousStatus === "writing" &&
           previousRound === state.room.round
         ) {
+          await renderPlayerStrip();
           return;
         }
 
@@ -861,25 +711,23 @@ function subscribeRealtime(roomId) {
       }
     )
 
-    // PLAYER CHANGES
+    // PLAYERS
     .on(
       "postgres_changes",
       {
         event: "*",
         schema: "public",
         table: "players",
-        filter: `room_id=eq.${roomId}`
+        filter: `room_id=eq.${roomId}`,
       },
       async (payload) => {
-
-        // -------------------------------------------------------------
-        // KICK DETECTION
-        // -------------------------------------------------------------
+        // If realtime gives us the deleted player's ID,
+        // immediately detect that the local player was removed.
         if (
           payload.eventType === "DELETE" &&
           payload.old?.id === state.playerId
         ) {
-          alert("You were kicked from the room by the host.");
+          alert("You were removed from the room.");
 
           await leaveRoom();
           return;
@@ -888,8 +736,8 @@ function subscribeRealtime(roomId) {
         await refreshPlayers();
         await renderPlayerStrip();
 
-        // Player joins/leaves/score changes should never rebuild
-        // the writing form.
+        // Never rebuild the writing form because someone joined,
+        // left, or their score changed.
         if (state.room?.status === "writing") {
           return;
         }
@@ -898,14 +746,14 @@ function subscribeRealtime(roomId) {
       }
     )
 
-    // PAPER CHANGES
+    // PAPERS
     .on(
       "postgres_changes",
       {
         event: "*",
         schema: "public",
         table: "papers",
-        filter: `room_id=eq.${roomId}`
+        filter: `room_id=eq.${roomId}`,
       },
       async () => {
         if (state.room?.status === "writing") {
@@ -915,14 +763,14 @@ function subscribeRealtime(roomId) {
       }
     )
 
-    // ASSIGNMENT CHANGES
+    // ASSIGNMENTS
     .on(
       "postgres_changes",
       {
         event: "*",
         schema: "public",
         table: "assignments",
-        filter: `room_id=eq.${roomId}`
+        filter: `room_id=eq.${roomId}`,
       },
       async () => {
         if (state.room?.status === "guessing") {
@@ -944,7 +792,7 @@ function isHost() {
 }
 
 // ---------------------------------------------------------------------
-// dispatch UI based on room status
+// SCREEN DISPATCH
 // ---------------------------------------------------------------------
 function renderForStatus() {
   if (!state.room) return;
@@ -979,59 +827,34 @@ function renderForStatus() {
 // LOBBY
 // ---------------------------------------------------------------------
 function renderLobby() {
-  $("lobby-code").textContent = state.room.code;
+  if (!state.room) return;
+
+  if ($("lobby-code")) {
+    $("lobby-code").textContent = state.room.code;
+  }
 
   const list = $("lobby-players");
-  list.innerHTML = "";
 
-  // ---------------------------------------------------------------
-  // HOST CHECK
-  // ---------------------------------------------------------------
+  if (list) {
+    list.innerHTML = "";
+
+    state.players.forEach((p) => {
+      const li = document.createElement("li");
+
+      li.innerHTML =
+        `${avatarMarkup(p.avatar, "avatar-svg lobby-avatar")}
+         <span>${escapeHtml(p.name)}</span>` +
+        (p.is_host
+          ? `<span class="host-tag">HOST</span>`
+          : "");
+
+      list.appendChild(li);
+    });
+  }
+
   const host = isHost();
 
-  state.players.forEach((p) => {
-    const li = document.createElement("li");
-
-    // Player information
-    const playerInfo = document.createElement("div");
-    playerInfo.className = "lobby-player-info";
-
-    playerInfo.innerHTML = `
-      ${avatarMarkup(p.avatar, "avatar-svg lobby-avatar")}
-      <span>${escapeHtml(p.name)}</span>
-      ${p.is_host ? `<span class="host-tag">HOST</span>` : ""}
-    `;
-
-    li.appendChild(playerInfo);
-
-    // -------------------------------------------------------------
-    // KICK BUTTON
-    // Only visible to the host.
-    // Host cannot kick themselves.
-    // -------------------------------------------------------------
-    if (host && p.id !== state.playerId) {
-      const kick = document.createElement("button");
-
-      kick.type = "button";
-      kick.className = "kick-player";
-      kick.textContent = "Kick";
-
-      kick.onclick = () => {
-        kickPlayer(
-          p.id,
-          p.name,
-          kick
-        );
-      };
-
-      li.appendChild(kick);
-    }
-
-    list.appendChild(li);
-  });
-
-  // Host controls
-  $("lobby-host-controls").classList.toggle(
+  $("lobby-host-controls")?.classList.toggle(
     "hidden",
     !host
   );
@@ -1039,74 +862,89 @@ function renderLobby() {
   const countLabel =
     `${state.players.length}/${MAX_PLAYERS} players`;
 
-  $("lobby-hint").textContent = host
-    ? (
-        state.players.length < 3
-          ? `Need at least 3 players to start. (${countLabel})`
-          : countLabel
-      )
-    : `Waiting for the host to start the game… (${countLabel})`;
+  if ($("lobby-hint")) {
+    $("lobby-hint").textContent = host
+      ? (
+          state.players.length < 3
+            ? `Need at least 3 players to start. (${countLabel})`
+            : countLabel
+        )
+      : `Waiting for the host to start the game… (${countLabel})`;
+  }
 
-  $("btn-start").disabled =
-    state.players.length < 3;
+  if ($("btn-start")) {
+    $("btn-start").disabled =
+      state.players.length < 3;
+  }
 
-  // -----------------------------------------------------------------
-  // EXTEMPORE MODE
-  // -----------------------------------------------------------------
+  // EXTEMPORE
   const extempore = !!state.room.extempore;
 
-  $("toggle-extempore").checked = extempore;
+  if ($("toggle-extempore")) {
+    $("toggle-extempore").checked = extempore;
+  }
 
-  $("extempore-options").classList.toggle(
+  $("extempore-options")?.classList.toggle(
     "hidden",
     !(host && extempore)
   );
 
-  $("lobby-mode-note").textContent = extempore
-    ? "🎤 Extempore mode: everyone writes on the same topic each round."
-    : "";
+  if ($("lobby-mode-note")) {
+    $("lobby-mode-note").textContent = extempore
+      ? "🎤 Extempore mode: everyone writes on the same topic each round."
+      : "";
+  }
 
-  // -----------------------------------------------------------------
   // CUSTOM TOPICS
-  // -----------------------------------------------------------------
   const topicList = $("custom-topic-list");
 
-  topicList.innerHTML = "";
+  if (topicList) {
+    topicList.innerHTML = "";
 
-  (state.room.custom_topics || []).forEach(
-    (topic, index) => {
-      const li = document.createElement("li");
+    (state.room.custom_topics || []).forEach(
+      (topic, index) => {
+        const li = document.createElement("li");
 
-      li.className = "topic-chip";
+        li.className = "topic-chip";
 
-      li.innerHTML = `
-        <span>${escapeHtml(topic)}</span>
-      `;
+        const span = document.createElement("span");
 
-      const remove = document.createElement("button");
+        span.textContent = topic;
 
-      remove.type = "button";
-      remove.textContent = "✕";
+        const remove =
+          document.createElement("button");
 
-      remove.setAttribute(
-        "aria-label",
-        `Remove topic ${topic}`
-      );
+        remove.type = "button";
+        remove.textContent = "✕";
 
-      remove.onclick = () =>
-        removeCustomTopic(index);
+        remove.setAttribute(
+          "aria-label",
+          `Remove topic ${topic}`
+        );
 
-      li.appendChild(remove);
-      topicList.appendChild(li);
-    }
-  );
+        remove.onclick = () =>
+          removeCustomTopic(index);
+
+        li.appendChild(span);
+        li.appendChild(remove);
+
+        topicList.appendChild(li);
+      }
+    );
+  }
 }
 
 // ---------------------------------------------------------------------
-// EXTEMPORE MODE
+// EXTEMPORE
 // ---------------------------------------------------------------------
 async function toggleExtempore() {
-  const on = $("toggle-extempore").checked;
+  if (!state.room || !isHost()) return;
+
+  const checkbox = $("toggle-extempore");
+
+  if (!checkbox) return;
+
+  const on = checkbox.checked;
 
   const { error } = await supabase
     .from("rooms")
@@ -1114,7 +952,7 @@ async function toggleExtempore() {
     .eq("id", state.room.id);
 
   if (error) {
-    $("toggle-extempore").checked = !on;
+    checkbox.checked = !on;
 
     alert(
       "Could not change Extempore mode: " +
@@ -1124,15 +962,21 @@ async function toggleExtempore() {
 }
 
 async function addCustomTopic() {
+  if (!state.room || !isHost()) return;
+
   const input = $("input-topic");
 
-  const text = input.value
-    .trim()
-    .replace(/\s+/g, " ");
+  if (!input) return;
+
+  const text =
+    input.value
+      .trim()
+      .replace(/\s+/g, " ");
 
   if (!text) return;
 
-  const list = state.room.custom_topics || [];
+  const list =
+    state.room.custom_topics || [];
 
   if (list.length >= MAX_CUSTOM_TOPICS) {
     return setError(
@@ -1143,7 +987,9 @@ async function addCustomTopic() {
 
   if (
     list.some(
-      (t) => t.toLowerCase() === text.toLowerCase()
+      (t) =>
+        t.toLowerCase() ===
+        text.toLowerCase()
     )
   ) {
     return setError(
@@ -1162,15 +1008,22 @@ async function addCustomTopic() {
 
   const { error } = await supabase
     .from("rooms")
-    .update({ custom_topics: next })
+    .update({
+      custom_topics: next,
+    })
     .eq("id", state.room.id);
 
   if (error) {
-    setError("topic-error", error.message);
+    setError(
+      "topic-error",
+      error.message
+    );
   }
 }
 
 async function removeCustomTopic(index) {
+  if (!state.room || !isHost()) return;
+
   const next =
     (state.room.custom_topics || [])
       .filter((_, i) => i !== index);
@@ -1181,11 +1034,16 @@ async function removeCustomTopic(index) {
 
   const { error } = await supabase
     .from("rooms")
-    .update({ custom_topics: next })
+    .update({
+      custom_topics: next,
+    })
     .eq("id", state.room.id);
 
   if (error) {
-    setError("topic-error", error.message);
+    setError(
+      "topic-error",
+      error.message
+    );
   }
 }
 
@@ -1193,12 +1051,16 @@ async function removeCustomTopic(index) {
 // TOPICS
 // ---------------------------------------------------------------------
 function pickTopic(room) {
-  const custom = room.custom_topics || [];
+  const custom =
+    room.custom_topics || [];
 
-  let used = room.used_topics || [];
+  let used =
+    room.used_topics || [];
 
   const unused = (list) =>
-    list.filter((t) => !used.includes(t));
+    list.filter(
+      (t) => !used.includes(t)
+    );
 
   let pool = unused(custom);
 
@@ -1216,11 +1078,15 @@ function pickTopic(room) {
   }
 
   const topic =
-    pool[Math.floor(Math.random() * pool.length)];
+    pool[
+      Math.floor(
+        Math.random() * pool.length
+      )
+    ];
 
   return {
     topic,
-    used: [...used, topic]
+    used: [...used, topic],
   };
 }
 
@@ -1235,7 +1101,9 @@ function renderTopicLine(id) {
       : null;
 
   el.textContent =
-    topic ? `Topic: ${topic}` : "";
+    topic
+      ? `Topic: ${topic}`
+      : "";
 
   el.classList.toggle(
     "hidden",
@@ -1247,47 +1115,83 @@ function renderTopicLine(id) {
 // START GAME
 // ---------------------------------------------------------------------
 async function startGame() {
-  const seconds =
-    parseInt(
-      $("select-seconds").value,
-      10
-    );
+  if (startingGame) return;
+  if (!state.room || !isHost()) return;
 
-  const endsAt =
-    new Date(
-      Date.now() + seconds * 1000
-    ).toISOString();
+  startingGame = true;
 
-  const update = {
-    status: "writing",
-    round: 1,
-    round_seconds: seconds,
-    writing_ends_at: endsAt,
-  };
+  const button = $("btn-start");
 
-  if (state.room.extempore) {
-    const { topic, used } =
-      pickTopic({
-        ...state.room,
-        used_topics: []
-      });
+  if (button) {
+    button.disabled = true;
 
-    update.topic = topic;
-    update.used_topics = used;
+    if (!button.dataset.originalText) {
+      button.dataset.originalText =
+        button.textContent;
+    }
+
+    button.textContent = "Starting...";
   }
 
-  const { error } =
-    await supabase
-      .from("rooms")
-      .update(update)
-      .eq("id", state.room.id)
-      .eq("status", "lobby");
+  try {
+    const seconds =
+      parseInt(
+        $("select-seconds")?.value,
+        10
+      ) || 60;
 
-  if (error) {
-    alert(
-      "Could not start the game: " +
-      error.message
-    );
+    const endsAt =
+      new Date(
+        Date.now() +
+        seconds * 1000
+      ).toISOString();
+
+    const update = {
+      status: "writing",
+      round: 1,
+      round_seconds: seconds,
+      writing_ends_at: endsAt,
+    };
+
+    if (state.room.extempore) {
+      const {
+        topic,
+        used,
+      } = pickTopic({
+        ...state.room,
+        used_topics: [],
+      });
+
+      update.topic = topic;
+      update.used_topics = used;
+    }
+
+    const { error } =
+      await supabase
+        .from("rooms")
+        .update(update)
+        .eq("id", state.room.id)
+        .eq("status", "lobby");
+
+    if (error) {
+      alert(
+        "Could not start the game: " +
+        error.message
+      );
+    }
+
+  } finally {
+    startingGame = false;
+
+    if (button) {
+      button.disabled =
+        state.players.length < 3;
+
+      if (button.dataset.originalText) {
+        button.textContent =
+          button.dataset.originalText;
+      }
+    }
   }
 }
 
@@ -1295,27 +1199,37 @@ async function startGame() {
 // WRITING
 // ---------------------------------------------------------------------
 function renderWriting() {
-  $("write-round").textContent =
-    state.room.round;
+  if (!state.room) return;
+
+  if ($("write-round")) {
+    $("write-round").textContent =
+      state.room.round;
+  }
 
   const topic =
     state.room.extempore
       ? state.room.topic
       : null;
 
-  $("write-topic").classList.toggle(
+  $("write-topic")?.classList.toggle(
     "hidden",
     !topic
   );
 
-  $("write-topic-text").textContent =
-    topic || "";
+  if ($("write-topic-text")) {
+    $("write-topic-text").textContent =
+      topic || "";
+  }
 
-  $("write-text").placeholder = topic
-    ? "Write about the topic above — make it good, funny or weird. Someone will have to guess it's you."
-    : "Write anything — a confession, a lie, a weird fact. Someone will have to guess it's you.";
+  if ($("write-text")) {
+    $("write-text").placeholder =
+      topic
+        ? "Write about the topic above — make it good, funny or weird. Someone will have to guess it's you."
+        : "Write anything — a confession, a lie, a weird fact. Someone will have to guess it's you.";
+  }
 
-  // Don't reset the writing form during realtime updates.
+  // CRITICAL:
+  // Don't reset textarea every time realtime updates.
   if (
     state.currentWritingRound ===
     state.room.round
@@ -1326,18 +1240,32 @@ function renderWriting() {
   state.currentWritingRound =
     state.room.round;
 
-  $("write-text").value = "";
-  $("write-text").disabled = false;
-  $("btn-submit-paper").disabled = false;
-  $("write-status").textContent = "";
+  if ($("write-text")) {
+    $("write-text").value = "";
+    $("write-text").disabled = false;
+  }
+
+  if ($("btn-submit-paper")) {
+    $("btn-submit-paper").disabled =
+      false;
+  }
+
+  if ($("write-status")) {
+    $("write-status").textContent = "";
+  }
 
   startCountdown(
     state.room.writing_ends_at
   );
 }
 
+// ---------------------------------------------------------------------
+// COUNTDOWN
+// ---------------------------------------------------------------------
 function startCountdown(endsAtISO) {
   clearInterval(state.timerHandle);
+
+  if (!endsAtISO) return;
 
   const endsAt =
     new Date(endsAtISO).getTime();
@@ -1347,27 +1275,43 @@ function startCountdown(endsAtISO) {
       Math.max(
         0,
         Math.round(
-          (endsAt - Date.now()) / 1000
+          (endsAt - Date.now()) /
+          1000
         )
       );
 
-    const el = $("write-timer");
+    const el =
+      $("write-timer");
 
-    el.textContent = remaining;
+    if (el) {
+      el.textContent =
+        remaining;
 
-    el.classList.toggle(
-      "low",
-      remaining <= 10
-    );
+      el.classList.toggle(
+        "low",
+        remaining <= 10
+      );
+    }
 
     if (remaining <= 0) {
-      clearInterval(state.timerHandle);
+      clearInterval(
+        state.timerHandle
+      );
 
-      $("write-text").disabled = true;
-      $("btn-submit-paper").disabled = true;
+      if ($("write-text")) {
+        $("write-text").disabled =
+          true;
+      }
 
-      $("write-status").textContent =
-        "Time's up — shuffling papers…";
+      if ($("btn-submit-paper")) {
+        $("btn-submit-paper").disabled =
+          true;
+      }
+
+      if ($("write-status")) {
+        $("write-status").textContent =
+          "Time's up — shuffling papers…";
+      }
 
       if (isHost()) {
         claimAndDistribute();
@@ -1381,40 +1325,106 @@ function startCountdown(endsAtISO) {
     setInterval(tick, 250);
 }
 
+// ---------------------------------------------------------------------
+// SUBMIT PAPER
+// ---------------------------------------------------------------------
 async function submitPaper() {
+  if (submittingPaper) return;
+
+  if (!state.room || !state.playerId) {
+    return;
+  }
+
+  const textarea =
+    $("write-text");
+
+  if (!textarea) return;
+
   const content =
-    $("write-text").value.trim();
+    textarea.value.trim();
 
   if (!content) return;
 
-  $("btn-submit-paper").disabled = true;
+  submittingPaper = true;
 
-  const { error } =
-    await supabase
-      .from("papers")
-      .insert({
-        room_id: state.room.id,
-        round: state.room.round,
-        author_id: state.playerId,
-        content,
-      });
+  const button =
+    $("btn-submit-paper");
 
-  if (error) {
-    $("write-status").textContent =
-      "Submitted. Waiting for others…";
-  } else {
-    $("write-status").textContent =
-      "Submitted. Waiting for others…";
+  if (button) {
+    button.disabled = true;
 
-    $("write-text").disabled = true;
+    if (!button.dataset.originalText) {
+      button.dataset.originalText =
+        button.textContent;
+    }
+
+    button.textContent =
+      "Submitted";
   }
 
-  await renderPlayerStrip();
-  await maybeAutoAdvanceWriting();
+  try {
+    const { error } =
+      await supabase
+        .from("papers")
+        .insert({
+          room_id: state.room.id,
+          round: state.room.round,
+          author_id: state.playerId,
+          content,
+        });
+
+    if (error) {
+      // Usually means unique constraint:
+      // paper already submitted.
+      if ($("write-status")) {
+        $("write-status").textContent =
+          "Submitted. Waiting for others…";
+      }
+    } else {
+      if ($("write-status")) {
+        $("write-status").textContent =
+          "Submitted. Waiting for others…";
+      }
+
+      textarea.disabled = true;
+    }
+
+    await renderPlayerStrip();
+    await maybeAutoAdvanceWriting();
+
+  } catch (error) {
+    console.error(
+      "Submit paper error:",
+      error
+    );
+
+    if ($("write-status")) {
+      $("write-status").textContent =
+        "Could not submit. Try again.";
+    }
+
+    if (button) {
+      button.disabled = false;
+    }
+
+  } finally {
+    submittingPaper = false;
+
+    if (button) {
+      if (button.dataset.originalText) {
+        button.textContent =
+          button.dataset.originalText;
+      }
+    }
+  }
 }
 
+// ---------------------------------------------------------------------
+// AUTO ADVANCE WRITING
+// ---------------------------------------------------------------------
 async function maybeAutoAdvanceWriting() {
   if (
+    !state.room ||
     state.room.status !== "writing"
   ) {
     return;
@@ -1432,7 +1442,7 @@ async function maybeAutoAdvanceWriting() {
       state.players.length &&
     isHost()
   ) {
-    claimAndDistribute();
+    await claimAndDistribute();
   }
 }
 
@@ -1440,11 +1450,13 @@ async function maybeAutoAdvanceWriting() {
 // SHUFFLE + DISTRIBUTE
 // ---------------------------------------------------------------------
 async function claimAndDistribute() {
+  if (!state.room) return;
+
   const { data: claimed } =
     await supabase
       .from("rooms")
       .update({
-        status: "distributing"
+        status: "distributing",
       })
       .eq("id", state.room.id)
       .eq("status", "writing")
@@ -1468,7 +1480,7 @@ async function claimAndDistribute() {
       status:
         made > 0
           ? "guessing"
-          : "reveal"
+          : "reveal",
     })
     .eq("id", state.room.id);
 }
@@ -1511,6 +1523,9 @@ async function backfillMissingPapers() {
     );
 }
 
+// ---------------------------------------------------------------------
+// ASSIGN PAPERS
+// ---------------------------------------------------------------------
 async function assignPapers() {
   await refreshPlayers();
 
@@ -1528,23 +1543,31 @@ async function assignPapers() {
 
   const rows = [];
 
-  realPapers.forEach((paper) => {
-    state.players.forEach((player) => {
-      if (
-        player.id ===
-        paper.author_id
-      ) {
-        return;
-      }
+  realPapers.forEach(
+    (paper) => {
+      state.players.forEach(
+        (player) => {
+          if (
+            player.id ===
+            paper.author_id
+          ) {
+            return;
+          }
 
-      rows.push({
-        room_id: state.room.id,
-        round: state.room.round,
-        paper_id: paper.id,
-        assigned_to: player.id,
-      });
-    });
-  });
+          rows.push({
+            room_id:
+              state.room.id,
+            round:
+              state.room.round,
+            paper_id:
+              paper.id,
+            assigned_to:
+              player.id,
+          });
+        }
+      );
+    }
+  );
 
   if (rows.length > 0) {
     const { error } =
@@ -1583,15 +1606,26 @@ async function renderGuessing() {
 
   await renderPlayerStrip();
 
+  if (!state.room) return;
+
   const { data } =
     await supabase
       .from("assignments")
       .select(
         "id, guessed_player_id, papers(content)"
       )
-      .eq("room_id", state.room.id)
-      .eq("round", state.room.round)
-      .eq("assigned_to", state.playerId)
+      .eq(
+        "room_id",
+        state.room.id
+      )
+      .eq(
+        "round",
+        state.room.round
+      )
+      .eq(
+        "assigned_to",
+        state.playerId
+      )
       .order("id");
 
   if (
@@ -1609,24 +1643,30 @@ async function renderGuessing() {
   const answered =
     mine.filter(
       (a) =>
-        a.guessed_player_id !== null
+        a.guessed_player_id !==
+        null
     ).length;
 
   const current =
     mine.find(
       (a) =>
-        a.guessed_player_id === null
+        a.guessed_player_id ===
+        null
     );
 
   const grid =
     $("guess-player-grid");
 
-  grid.innerHTML = "";
+  if (grid) {
+    grid.innerHTML = "";
+  }
 
   if (total === 0) {
     $("guess-progress").textContent = "";
+
     $("guess-paper-text").textContent =
       "There's nothing for you to guess this round.";
+
     $("guess-status").textContent =
       "Waiting for everyone else…";
 
@@ -1655,14 +1695,19 @@ async function renderGuessing() {
   $("guess-status").textContent =
     "Who wrote this paper? Tap a player.";
 
+  if (!grid) return;
+
   state.players
     .filter(
       (p) =>
-        p.id !== state.playerId
+        p.id !==
+        state.playerId
     )
     .forEach((p) => {
       const card =
-        document.createElement("div");
+        document.createElement(
+          "div"
+        );
 
       card.className =
         "player-card";
@@ -1685,11 +1730,16 @@ async function renderGuessing() {
     });
 }
 
+// ---------------------------------------------------------------------
+// SUBMIT GUESS
+// ---------------------------------------------------------------------
 async function submitGuess(
   assignmentId,
   guessedPlayerId
 ) {
-  if (state.submittingGuess) {
+  if (
+    state.submittingGuess
+  ) {
     return;
   }
 
@@ -1700,15 +1750,19 @@ async function submitGuess(
       .from("assignments")
       .update({
         guessed_player_id:
-          guessedPlayerId
+          guessedPlayerId,
       })
-      .eq("id", assignmentId)
+      .eq(
+        "id",
+        assignmentId
+      )
       .is(
         "guessed_player_id",
         null
       );
 
     await renderGuessing();
+
     await maybeAutoAdvanceGuessing();
 
   } finally {
@@ -1716,6 +1770,9 @@ async function submitGuess(
   }
 }
 
+// ---------------------------------------------------------------------
+// AUTO ADVANCE GUESSING
+// ---------------------------------------------------------------------
 async function maybeAutoAdvanceGuessing() {
   if (
     state.room?.status !==
@@ -1728,18 +1785,25 @@ async function maybeAutoAdvanceGuessing() {
     await supabase
       .from("assignments")
       .select("guessed_player_id")
-      .eq("room_id", state.room.id)
-      .eq("round", state.room.round);
+      .eq(
+        "room_id",
+        state.room.id
+      )
+      .eq(
+        "round",
+        state.room.round
+      );
 
   const allGuessed =
     (assignments || []).length > 0 &&
     assignments.every(
       (a) =>
-        a.guessed_player_id !== null
+        a.guessed_player_id !==
+        null
     );
 
   if (allGuessed) {
-    claimAndReveal();
+    await claimAndReveal();
   }
 }
 
@@ -1747,14 +1811,22 @@ async function maybeAutoAdvanceGuessing() {
 // REVEAL + SCORING
 // ---------------------------------------------------------------------
 async function claimAndReveal() {
+  if (!state.room) return;
+
   const { data: claimed } =
     await supabase
       .from("rooms")
       .update({
-        status: "scoring"
+        status: "scoring",
       })
-      .eq("id", state.room.id)
-      .eq("status", "guessing")
+      .eq(
+        "id",
+        state.room.id
+      )
+      .eq(
+        "status",
+        "guessing"
+      )
       .select();
 
   if (
@@ -1772,24 +1844,35 @@ async function claimAndReveal() {
       .select(
         "assigned_to, guessed_player_id, papers(author_id)"
       )
-      .eq("room_id", state.room.id)
-      .eq("round", state.room.round);
+      .eq(
+        "room_id",
+        state.room.id
+      )
+      .eq(
+        "round",
+        state.room.round
+      );
 
   const gained = {};
 
-  (assignments || []).forEach((a) => {
-    if (
-      a.guessed_player_id ===
-      a.papers.author_id
-    ) {
-      gained[a.assigned_to] =
-        (gained[a.assigned_to] || 0) + 1;
+  (assignments || []).forEach(
+    (a) => {
+      if (
+        a.guessed_player_id ===
+        a.papers.author_id
+      ) {
+        gained[a.assigned_to] =
+          (gained[a.assigned_to] ||
+            0) + 1;
+      }
     }
-  });
+  );
 
   for (
-    const [playerId, points]
-    of Object.entries(gained)
+    const [
+      playerId,
+      points,
+    ] of Object.entries(gained)
   ) {
     const player =
       state.players.find(
@@ -1802,7 +1885,7 @@ async function claimAndReveal() {
       .update({
         score:
           (player?.score || 0) +
-          points
+          points,
       })
       .eq(
         "id",
@@ -1813,7 +1896,7 @@ async function claimAndReveal() {
   await supabase
     .from("rooms")
     .update({
-      status: "reveal"
+      status: "reveal",
     })
     .eq(
       "id",
@@ -1821,12 +1904,18 @@ async function claimAndReveal() {
     );
 }
 
+// ---------------------------------------------------------------------
+// REVEAL SCREEN
+// ---------------------------------------------------------------------
 async function renderReveal() {
   await refreshPlayers();
+
   await renderPlayerStrip();
 
-  $("reveal-round").textContent =
-    state.room.round;
+  if ($("reveal-round")) {
+    $("reveal-round").textContent =
+      state.room.round;
+  }
 
   renderTopicLine(
     "reveal-topic"
@@ -1838,8 +1927,14 @@ async function renderReveal() {
       .select(
         "paper_id, assigned_to, guessed_player_id, papers(content, author_id)"
       )
-      .eq("room_id", state.room.id)
-      .eq("round", state.room.round);
+      .eq(
+        "room_id",
+        state.room.id
+      )
+      .eq(
+        "round",
+        state.room.round
+      );
 
   const byId =
     Object.fromEntries(
@@ -1848,32 +1943,45 @@ async function renderReveal() {
       )
     );
 
-  const papers = new Map();
+  const papers =
+    new Map();
+
   const roundPoints = {};
 
-  (assignments || []).forEach((a) => {
-    if (!papers.has(a.paper_id)) {
-      papers.set(
-        a.paper_id,
-        {
-          paper: a.papers,
-          guesses: []
-        }
-      );
-    }
+  (assignments || []).forEach(
+    (a) => {
+      if (
+        !papers.has(
+          a.paper_id
+        )
+      ) {
+        papers.set(
+          a.paper_id,
+          {
+            paper:
+              a.papers,
+            guesses: [],
+          }
+        );
+      }
 
-    papers
-      .get(a.paper_id)
-      .guesses.push(a);
+      papers
+        .get(a.paper_id)
+        .guesses.push(a);
 
-    if (
-      a.guessed_player_id ===
-      a.papers.author_id
-    ) {
-      roundPoints[a.assigned_to] =
-        (roundPoints[a.assigned_to] || 0) + 1;
+      if (
+        a.guessed_player_id ===
+        a.papers.author_id
+      ) {
+        roundPoints[
+          a.assigned_to
+        ] =
+          (roundPoints[
+            a.assigned_to
+          ] || 0) + 1;
+      }
     }
-  });
+  );
 
   const orderOf =
     (authorId) =>
@@ -1886,8 +1994,12 @@ async function renderReveal() {
     [...papers.values()]
       .sort(
         (x, y) =>
-          orderOf(x.paper.author_id) -
-          orderOf(y.paper.author_id)
+          orderOf(
+            x.paper.author_id
+          ) -
+          orderOf(
+            y.paper.author_id
+          )
       );
 
   if (
@@ -1902,15 +2014,22 @@ async function renderReveal() {
 
   state.revealCards =
     groups.map(
-      ({ paper, guesses }) => {
+      ({
+        paper,
+        guesses,
+      }) => {
         const author =
-          byId[paper.author_id];
+          byId[
+            paper.author_id
+          ];
 
         const lines =
           guesses
             .map((a) => {
               const guesser =
-                byId[a.assigned_to];
+                byId[
+                  a.assigned_to
+                ];
 
               const guessed =
                 byId[
@@ -1976,11 +2095,13 @@ async function renderReveal() {
 
             <div>
               Written by
+
               <strong>
                 ${avatarMarkup(
                   author?.avatar,
                   "avatar-svg inline-avatar"
                 )}
+
                 ${escapeHtml(
                   author?.name ||
                   "Unknown"
@@ -2000,10 +2121,14 @@ async function renderReveal() {
   const board =
     $("scoreboard");
 
+  if (!board) return;
+
   board.innerHTML =
     "<strong>Scoreboard</strong>";
 
-  [...state.players]
+  [
+    ...state.players,
+  ]
     .sort(
       (a, b) =>
         (b.score || 0) -
@@ -2048,22 +2173,25 @@ async function renderReveal() {
       board.appendChild(row);
     });
 
-  const host = isHost();
+  const host =
+    isHost();
 
   $("reveal-host-controls")
-    .classList.toggle(
+    ?.classList.toggle(
       "hidden",
       !host
     );
 
-  $("reveal-hint").textContent =
-    host
-      ? ""
-      : "Waiting for the host to start the next round…";
+  if ($("reveal-hint")) {
+    $("reveal-hint").textContent =
+      host
+        ? ""
+        : "Waiting for the host to start the next round…";
+  }
 }
 
 // ---------------------------------------------------------------------
-// reveal navigation
+// REVEAL PAPER NAVIGATION
 // ---------------------------------------------------------------------
 function showRevealPaper(
   animate = false
@@ -2080,11 +2208,18 @@ function showRevealPaper(
   const next =
     $("reveal-next");
 
+  if (!list || !prev || !next) {
+    return;
+  }
+
   if (total === 0) {
     list.innerHTML =
       `<div class="reveal-item">Nobody wrote anything this round.</div>`;
 
-    $("reveal-counter").textContent = "";
+    if ($("reveal-counter")) {
+      $("reveal-counter").textContent =
+        "";
+    }
 
     prev.classList.add("hidden");
     next.classList.add("hidden");
@@ -2118,10 +2253,10 @@ function showRevealPaper(
     );
   }
 
-  $("reveal-counter").textContent =
-    `Paper ${
-      state.revealIndex + 1
-    } of ${total}`;
+  if ($("reveal-counter")) {
+    $("reveal-counter").textContent =
+      `Paper ${state.revealIndex + 1} of ${total}`;
+  }
 
   prev.classList.remove(
     "hidden"
@@ -2150,164 +2285,504 @@ function moveReveal(direction) {
 // NEXT ROUND
 // ---------------------------------------------------------------------
 async function nextRound() {
-  state.currentWritingRound =
-    null;
+  if (startingNextRound) return;
 
-  const seconds =
-    state.room.round_seconds;
+  if (!state.room || !isHost()) {
+    return;
+  }
 
-  const endsAt =
-    new Date(
-      Date.now() +
-      seconds * 1000
-    ).toISOString();
+  startingNextRound = true;
 
-  const update = {
-    status: "writing",
-    round:
-      state.room.round + 1,
-    writing_ends_at:
-      endsAt,
-  };
+  const button =
+    $("btn-next-round");
 
-  if (state.room.extempore) {
-    const { topic, used } =
-      pickTopic(
+  if (button) {
+    button.disabled = true;
+
+    if (!button.dataset.originalText) {
+      button.dataset.originalText =
+        button.textContent;
+    }
+
+    button.textContent =
+      "Starting...";
+  }
+
+  try {
+    state.currentWritingRound =
+      null;
+
+    const seconds =
+      state.room.round_seconds;
+
+    const endsAt =
+      new Date(
+        Date.now() +
+        seconds * 1000
+      ).toISOString();
+
+    const update = {
+      status: "writing",
+      round:
+        state.room.round + 1,
+      writing_ends_at:
+        endsAt,
+    };
+
+    if (state.room.extempore) {
+      const {
+        topic,
+        used,
+      } = pickTopic(
         state.room
       );
 
-    update.topic = topic;
-    update.used_topics = used;
+      update.topic =
+        topic;
+
+      update.used_topics =
+        used;
+    }
+
+    const { error } =
+      await supabase
+        .from("rooms")
+        .update(update)
+        .eq(
+          "id",
+          state.room.id
+        )
+        .eq(
+          "status",
+          "reveal"
+        );
+
+    if (error) {
+      alert(
+        "Could not start the next round: " +
+        error.message
+      );
+    }
+
+  } finally {
+    startingNextRound = false;
+
+    if (button) {
+      button.disabled = false;
+
+      if (button.dataset.originalText) {
+        button.textContent =
+          button.dataset.originalText;
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------
+// STARTUP LOADER
+// ---------------------------------------------------------------------
+
+function setLoaderStatus(text) {
+  const status =
+    $("startup-status");
+
+  if (status) {
+    status.textContent =
+      text;
+  }
+}
+
+function setLoaderProgress(percent) {
+  const bar =
+    $("startup-progress");
+
+  if (bar) {
+    bar.style.width =
+      `${percent}%`;
+  }
+}
+
+function preloadImage(src) {
+  return new Promise(
+    (resolve) => {
+      const img =
+        new Image();
+
+      img.onload =
+        () => resolve(true);
+
+      img.onerror =
+        () => resolve(false);
+
+      img.src = src;
+    }
+  );
+}
+
+async function preloadAvatars() {
+  const avatarBase =
+    "assets/avatars/";
+
+  const promises =
+    AVATARS.map(
+      (avatar) =>
+        preloadImage(
+          `${avatarBase}${avatar}`
+        )
+    );
+
+  await Promise.all(
+    promises
+  );
+}
+
+function checkRequiredElements() {
+  const required = [
+    "screen-name",
+    "screen-mode",
+    "screen-lobby",
+    "screen-writing",
+    "screen-guessing",
+    "screen-reveal",
+    "avatar-preview",
+    "input-name",
+    "input-code",
+    "btn-create",
+    "btn-join",
+    "btn-start",
+    "btn-submit-paper",
+  ];
+
+  const missing =
+    required.filter(
+      (id) => !$(id)
+    );
+
+  if (missing.length) {
+    console.warn(
+      "[Blank Page] Missing DOM elements:",
+      missing
+    );
   }
 
-  const { error } =
-    await supabase
-      .from("rooms")
-      .update(update)
-      .eq(
-        "id",
-        state.room.id
-      )
-      .eq(
-        "status",
-        "reveal"
-      );
+  return missing;
+}
 
-  if (error) {
-    alert(
-      "Could not start the next round: " +
-      error.message
+// ---------------------------------------------------------------------
+// EVENT INITIALIZATION
+// ---------------------------------------------------------------------
+function initializeButtonFunctions() {
+  if (initialized) return;
+
+  initialized = true;
+
+  renderAvatarPicker();
+
+  // Avatar
+  bindClick(
+    "avatar-prev",
+    () => changeAvatar(-1)
+  );
+
+  bindClick(
+    "avatar-next",
+    () => changeAvatar(1)
+  );
+
+  // Name / mode
+  bindClick(
+    "btn-continue",
+    continueFromName
+  );
+
+  bindClick(
+    "btn-back-name",
+    backToName
+  );
+
+  // Room
+  bindClick(
+    "btn-create",
+    createRoom
+  );
+
+  bindClick(
+    "btn-join",
+    joinRoom
+  );
+
+  bindClick(
+    "btn-start",
+    startGame
+  );
+
+  bindClick(
+    "btn-submit-paper",
+    submitPaper
+  );
+
+  bindClick(
+    "btn-next-round",
+    nextRound
+  );
+
+  bindClick(
+    "btn-leave",
+    leaveRoom
+  );
+
+  // Extempore
+  bindChange(
+    "toggle-extempore",
+    toggleExtempore
+  );
+
+  bindClick(
+    "btn-add-topic",
+    addCustomTopic
+  );
+
+  const topicInput =
+    $("input-topic");
+
+  if (topicInput) {
+    topicInput.addEventListener(
+      "keydown",
+      (event) => {
+        if (
+          event.key === "Enter"
+        ) {
+          event.preventDefault();
+          addCustomTopic();
+        }
+      }
+    );
+  }
+
+  // Reveal
+  bindClick(
+    "reveal-prev",
+    () => moveReveal(-1)
+  );
+
+  bindClick(
+    "reveal-next",
+    () => moveReveal(1)
+  );
+
+  // Keyboard
+  document.addEventListener(
+    "keydown",
+    (event) => {
+      const revealScreen =
+        $("screen-reveal");
+
+      if (
+        !revealScreen ||
+        !revealScreen.classList.contains(
+          "active"
+        )
+      ) {
+        return;
+      }
+
+      if (
+        event.key ===
+        "ArrowLeft"
+      ) {
+        const button =
+          $("reveal-prev");
+
+        if (
+          button &&
+          !button.disabled
+        ) {
+          moveReveal(-1);
+        }
+      }
+
+      if (
+        event.key ===
+        "ArrowRight"
+      ) {
+        const button =
+          $("reveal-next");
+
+        if (
+          button &&
+          !button.disabled
+        ) {
+          moveReveal(1);
+        }
+      }
+    }
+  );
+
+  // Enter on name
+  const nameInput =
+    $("input-name");
+
+  if (nameInput) {
+    nameInput.addEventListener(
+      "keydown",
+      (event) => {
+        if (
+          event.key === "Enter"
+        ) {
+          event.preventDefault();
+          continueFromName();
+        }
+      }
+    );
+  }
+
+  // Enter on room code
+  const codeInput =
+    $("input-code");
+
+  if (codeInput) {
+    codeInput.addEventListener(
+      "keydown",
+      (event) => {
+        if (
+          event.key === "Enter"
+        ) {
+          event.preventDefault();
+          joinRoom();
+        }
+      }
     );
   }
 }
 
 // ---------------------------------------------------------------------
-// wire up events
+// STARTUP
 // ---------------------------------------------------------------------
-renderAvatarPicker();
+async function startup() {
+  try {
+    setLoaderStatus(
+      "Preparing Blank Page..."
+    );
 
-$("avatar-prev").onclick =
-  () => changeAvatar(-1);
+    setLoaderProgress(10);
 
-$("avatar-next").onclick =
-  () => changeAvatar(1);
+    // Make sure an old session can never put the user
+    // into a stale room.
+    clearSession();
 
-$("btn-continue").onclick =
-  continueFromName;
+    setLoaderStatus(
+      "Loading avatars..."
+    );
 
-$("btn-back-name").onclick =
-  backToName;
+    await preloadAvatars();
 
-$("btn-create").onclick =
-  createRoom;
+    setLoaderProgress(40);
 
-$("btn-join").onclick =
-  joinRoom;
+    setLoaderStatus(
+      "Preparing game interface..."
+    );
 
-$("btn-start").onclick =
-  startGame;
+    checkRequiredElements();
 
-$("btn-submit-paper").onclick =
-  submitPaper;
+    initializeButtonFunctions();
 
-$("btn-next-round").onclick =
-  nextRound;
+    setLoaderProgress(65);
 
-$("btn-leave").onclick =
-  leaveRoom;
+    setLoaderStatus(
+      "Preparing player controls..."
+    );
 
-$("toggle-extempore").onchange =
-  toggleExtempore;
+    // Initial screen state
+    $("room-bar")?.classList.add(
+      "hidden"
+    );
 
-$("btn-add-topic").onclick =
-  addCustomTopic;
+    $("player-strip")?.classList.add(
+      "hidden"
+    );
 
-$("input-topic").addEventListener(
-  "keydown",
-  (event) => {
-    if (event.key === "Enter") {
-      addCustomTopic();
+    if ($("player-strip")) {
+      $("player-strip").innerHTML =
+        "";
+    }
+
+    showScreen("name");
+
+    setLoaderProgress(85);
+
+    setLoaderStatus(
+      "Almost ready..."
+    );
+
+    // Give the browser one frame to finish painting
+    // all preloaded assets before removing the loader.
+    await new Promise(
+      (resolve) =>
+        requestAnimationFrame(
+          () =>
+            requestAnimationFrame(
+              resolve
+            )
+        )
+    );
+
+    setLoaderProgress(100);
+
+    setLoaderStatus(
+      "Ready!"
+    );
+
+    await new Promise(
+      (resolve) =>
+        setTimeout(
+          resolve,
+          250
+        )
+    );
+
+    const loader =
+      $("startup-loader");
+
+    if (loader) {
+      loader.classList.add(
+        "loaded"
+      );
+
+      setTimeout(() => {
+        loader.remove();
+      }, 500);
+    }
+
+  } catch (error) {
+    console.error(
+      "[Blank Page] Startup error:",
+      error
+    );
+
+    // Even if the loader encounters a non-critical
+    // problem, don't leave the player stuck on it.
+    initializeButtonFunctions();
+
+    $("room-bar")?.classList.add(
+      "hidden"
+    );
+
+    showScreen("name");
+
+    const loader =
+      $("startup-loader");
+
+    if (loader) {
+      loader.classList.add(
+        "loaded"
+      );
+
+      setTimeout(() => {
+        loader.remove();
+      }, 500);
     }
   }
-);
+}
 
-$("reveal-prev").onclick =
-  () => moveReveal(-1);
-
-$("reveal-next").onclick =
-  () => moveReveal(1);
-
-// Left/right arrow keys
-document.addEventListener(
-  "keydown",
-  (event) => {
-    if (
-      !$("screen-reveal")
-        .classList
-        .contains("active")
-    ) {
-      return;
-    }
-
-    if (
-      event.key === "ArrowLeft" &&
-      !$("reveal-prev").disabled
-    ) {
-      moveReveal(-1);
-    }
-
-    if (
-      event.key === "ArrowRight" &&
-      !$("reveal-next").disabled
-    ) {
-      moveReveal(1);
-    }
-  }
-);
-
-$("input-name").addEventListener(
-  "keydown",
-  (event) => {
-    if (event.key === "Enter") {
-      continueFromName();
-    }
-  }
-);
-
-$("input-code").addEventListener(
-  "keydown",
-  (event) => {
-    if (event.key === "Enter") {
-      joinRoom();
-    }
-  }
-);
-
-// Always start on the name screen.
-clearSession();
-
-$("room-bar").classList.add(
-  "hidden"
-);
-
-showScreen("name");
+// Start everything after the module has loaded.
+startup();
