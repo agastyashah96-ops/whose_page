@@ -6,6 +6,7 @@ export const AVATARS = [
   "ravi.png",
   "subhu.png",
   "house.png",
+  "lawyer.png",
   "girl.png",
   "what.png",
   "jane.png",
