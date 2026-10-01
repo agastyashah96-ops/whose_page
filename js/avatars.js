@@ -3,6 +3,9 @@ const AVATAR_BASE = "assets/avatars/";
 export const AVATARS = [
   "saymyname.png",
   "cho.png",
+  "ravi.png",
+  "subhu.png",
+  "house.png",
   "girl.png",
   "what.png",
   "jane.png",
