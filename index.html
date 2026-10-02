@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/style.css?v=3">
+<link rel="stylesheet" href="css/style.css?v=4">
 </head>
 <body>
 <div id="startup-loader">
@@ -30,7 +30,10 @@
   <!-- Shared logo: visible on name, create/join and lobby screens; hidden once the game starts -->
   <header id="site-title">
     <h1 class="title">
-      <img class="title-gif" src="assets/title.gif" alt="Papers.io" draggable="false">
+      <span class="title-wrap">
+        <img class="title-crown" src="assets/crown.gif" alt="" draggable="false">
+        <img class="title-gif" src="assets/title.gif" alt="Papers.io" draggable="false">
+      </span>
     </h1>
   </header>
 
@@ -83,6 +86,7 @@
   <section id="screen-lobby" class="screen">
     <h2>Room <span id="lobby-code" class="code"></span></h2>
     <ul id="lobby-players" class="player-list"></ul>
+    <p id="lobby-notice" class="lobby-notice hidden" role="status"></p>
 
     <div id="lobby-host-controls" class="hidden">
       <label class="row">Round length:
@@ -161,7 +165,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script type="module" src="js/game.js?v=5"></script>
+<script type="module" src="js/game.js?v=6"></script>
 
 </body>
 </html>
