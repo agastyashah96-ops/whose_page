@@ -25,7 +25,10 @@ const state = {
   revealCards: [],
   revealIndex: 0,
   revealRound: null,
+  kickSelectedId: null,
 };
+
+let noticeTimer = null;
 
 let creatingRoom = false;
 let joiningRoom = false;
@@ -119,6 +122,22 @@ function setError(id, msg) {
       el.textContent = "";
     }
   }, 4000);
+}
+
+function showLobbyNotice(msg) {
+  const el = $("lobby-notice");
+
+  if (!el) return;
+
+  el.textContent = msg;
+  el.classList.remove("hidden");
+
+  clearTimeout(noticeTimer);
+
+  noticeTimer = setTimeout(() => {
+    el.classList.add("hidden");
+    el.textContent = "";
+  }, 6000);
 }
 
 // Safe event binding.
@@ -586,6 +605,10 @@ async function leaveRoom() {
     state.revealCards = [];
     state.revealIndex = 0;
     state.revealRound = null;
+    state.kickSelectedId = null;
+
+    clearTimeout(noticeTimer);
+    $("lobby-notice")?.classList.add("hidden");
 
     $("room-bar")?.classList.add("hidden");
 
@@ -956,6 +979,19 @@ function subscribeRealtime(roomId) {
         }
       )
 
+      // KICK NOTICE (broadcast by the host)
+      .on(
+        "broadcast",
+        { event: "kicked" },
+        ({ payload }) => {
+          if (payload?.name) {
+            showLobbyNotice(
+              `${payload.name} was kicked from the room.`
+            );
+          }
+        }
+      )
+
       .subscribe();
 }
 
@@ -1088,6 +1124,19 @@ async function kickPlayer(playerId) {
       return;
     }
 
+    state.kickSelectedId = null;
+
+    // Tell everyone else in the lobby who was kicked.
+    state.channel?.send({
+      type: "broadcast",
+      event: "kicked",
+      payload: { name: player.name },
+    });
+
+    showLobbyNotice(
+      `${player.name} was kicked from the room.`
+    );
+
     await refreshPlayers();
 
     renderLobby();
@@ -1130,9 +1179,46 @@ function renderLobby() {
   if (list) {
     list.innerHTML = "";
 
+    if (
+      state.kickSelectedId &&
+      !state.players.some(
+        (p) =>
+          p.id ===
+          state.kickSelectedId
+      )
+    ) {
+      state.kickSelectedId = null;
+    }
+
     state.players.forEach((p) => {
       const li =
         document.createElement("li");
+
+      const kickable =
+        host &&
+        p.id !== state.playerId;
+
+      if (kickable) {
+        li.classList.add(
+          "kickable"
+        );
+
+        li.classList.toggle(
+          "kick-open",
+          state.kickSelectedId ===
+            p.id
+        );
+
+        li.onclick = () => {
+          state.kickSelectedId =
+            state.kickSelectedId ===
+            p.id
+              ? null
+              : p.id;
+
+          renderLobby();
+        };
+      }
 
       li.innerHTML = `
         <div class="lobby-player-info">
@@ -1179,10 +1265,13 @@ function renderLobby() {
         );
 
       if (kickButton) {
-        kickButton.onclick = () =>
+        kickButton.onclick = (e) => {
+          e.stopPropagation();
+
           kickPlayer(
             p.id
           );
+        };
       }
     });
   }
