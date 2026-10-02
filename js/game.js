@@ -26,9 +26,12 @@ const state = {
   revealIndex: 0,
   revealRound: null,
   kickSelectedId: null,
+  beingRemoved: false,
+  skipSelfDelete: false,
 };
 
 let noticeTimer = null;
+let toastTimer = null;
 
 let creatingRoom = false;
 let joiningRoom = false;
@@ -138,6 +141,30 @@ function showLobbyNotice(msg) {
     el.classList.add("hidden");
     el.textContent = "";
   }, 6000);
+}
+
+function showToast(msg) {
+  const el = $("toast");
+
+  if (!el) return;
+
+  el.textContent = msg;
+  el.classList.add("show");
+
+  clearTimeout(toastTimer);
+
+  toastTimer = setTimeout(() => {
+    el.classList.remove("show");
+  }, 4000);
+}
+
+// Lobby notice in the lobby, toast everywhere else.
+function announce(msg) {
+  if (state.room?.status === "lobby") {
+    showLobbyNotice(msg);
+  } else {
+    showToast(msg);
+  }
 }
 
 // Safe event binding.
@@ -267,7 +294,7 @@ async function createRoom() {
 
     if (!name) {
       setError(
-        "name-error",
+        "mode-error",
         "Enter your name first."
       );
       return;
@@ -298,7 +325,7 @@ async function createRoom() {
       .single();
 
     if (error) {
-      setError("name-error", error.message);
+      setError("mode-error", error.message);
       return;
     }
 
@@ -317,7 +344,7 @@ async function createRoom() {
       .single();
 
     if (pErr) {
-      setError("name-error", pErr.message);
+      setError("mode-error", pErr.message);
       return;
     }
 
@@ -334,7 +361,7 @@ async function createRoom() {
     );
 
     setError(
-      "name-error",
+      "mode-error",
       "Could not create the room."
     );
   } finally {
@@ -389,7 +416,7 @@ async function joinRoom() {
 
     if (!name) {
       setError(
-        "name-error",
+        "mode-error",
         "Enter your name first."
       );
       return;
@@ -397,7 +424,7 @@ async function joinRoom() {
 
     if (!code) {
       setError(
-        "name-error",
+        "mode-error",
         "Enter a room code."
       );
       return;
@@ -414,16 +441,21 @@ async function joinRoom() {
 
     if (error || !room) {
       setError(
-        "name-error",
+        "mode-error",
         "Room not found."
       );
       return;
     }
 
-    if (room.status !== "lobby") {
+    // Mid-game joining is allowed; only the split-second
+    // transitions between phases are off limits.
+    if (
+      room.status === "distributing" ||
+      room.status === "scoring"
+    ) {
       setError(
-        "name-error",
-        "That game already started."
+        "mode-error",
+        "The round is changing — try again in a second."
       );
       return;
     }
@@ -439,7 +471,7 @@ async function joinRoom() {
 
     if ((count ?? 0) >= MAX_PLAYERS) {
       setError(
-        "name-error",
+        "mode-error",
         `Room is full (max ${MAX_PLAYERS} players).`
       );
       return;
@@ -461,13 +493,20 @@ async function joinRoom() {
 
     if (pErr) {
       setError(
-        "name-error",
+        "mode-error",
         pErr.message
       );
       return;
     }
 
     clearSession();
+
+    // Joining during the guessing phase: deal this player the
+    // current round's papers so they can guess too.
+    await dealPapersToLatePlayer(
+      room.id,
+      player.id
+    );
 
     await enterRoom(
       room.id,
@@ -480,7 +519,7 @@ async function joinRoom() {
     );
 
     setError(
-      "name-error",
+      "mode-error",
       "Could not join the room."
     );
   } finally {
@@ -495,6 +534,147 @@ async function joinRoom() {
           button.dataset.originalText;
       }
     }
+  }
+}
+
+// ---------------------------------------------------------------------
+// MID-GAME JOIN / REMOVE
+// ---------------------------------------------------------------------
+async function dealPapersToLatePlayer(
+  roomId,
+  playerId
+) {
+  const { data: fresh } =
+    await supabase
+      .from("rooms")
+      .select("status, round")
+      .eq("id", roomId)
+      .single();
+
+  if (!fresh || fresh.status !== "guessing") {
+    return;
+  }
+
+  const { data: papers } =
+    await supabase
+      .from("papers")
+      .select("id, author_id, auto_filled")
+      .eq("room_id", roomId)
+      .eq("round", fresh.round);
+
+  const rows = (papers || [])
+    .filter(
+      (p) =>
+        !p.auto_filled &&
+        p.author_id !== playerId
+    )
+    .map((p) => ({
+      room_id: roomId,
+      round: fresh.round,
+      paper_id: p.id,
+      assigned_to: playerId,
+    }));
+
+  if (rows.length === 0) return;
+
+  const { error } =
+    await supabase
+      .from("assignments")
+      .insert(rows);
+
+  if (error) {
+    console.error(
+      "Could not deal papers to late player:",
+      error
+    );
+    return;
+  }
+
+  // If the round ended while we were inserting, undo.
+  const { data: after } =
+    await supabase
+      .from("rooms")
+      .select("status")
+      .eq("id", roomId)
+      .single();
+
+  if (after?.status !== "guessing") {
+    await supabase
+      .from("assignments")
+      .delete()
+      .eq("room_id", roomId)
+      .eq("round", fresh.round)
+      .eq("assigned_to", playerId)
+      .is("guessed_player_id", null);
+  }
+}
+
+// Removes a player AND everything that references them, so it
+// works mid-game regardless of foreign-key settings.
+// Returns the error from deleting the player row (or null).
+async function purgePlayer(playerId) {
+  const roomId = state.room.id;
+
+  const { data: theirPapers } =
+    await supabase
+      .from("papers")
+      .select("id")
+      .eq("room_id", roomId)
+      .eq("author_id", playerId);
+
+  const paperIds = (theirPapers || []).map(
+    (p) => p.id
+  );
+
+  await supabase
+    .from("assignments")
+    .delete()
+    .eq("room_id", roomId)
+    .eq("assigned_to", playerId);
+
+  await supabase
+    .from("assignments")
+    .delete()
+    .eq("room_id", roomId)
+    .eq("guessed_player_id", playerId);
+
+  if (paperIds.length > 0) {
+    await supabase
+      .from("assignments")
+      .delete()
+      .in("paper_id", paperIds);
+
+    await supabase
+      .from("papers")
+      .delete()
+      .in("id", paperIds);
+  }
+
+  const { error } =
+    await supabase
+      .from("players")
+      .delete()
+      .eq("id", playerId)
+      .eq("room_id", roomId);
+
+  return error || null;
+}
+
+async function handleRemoved() {
+  if (state.beingRemoved || !state.room) {
+    return;
+  }
+
+  state.beingRemoved = true;
+  state.skipSelfDelete = true;
+
+  alert("You were removed from the room.");
+
+  try {
+    await leaveRoom();
+  } finally {
+    state.beingRemoved = false;
+    state.skipSelfDelete = false;
   }
 }
 
@@ -584,14 +764,26 @@ async function leaveRoom() {
       }
     }
 
-    if (state.playerId) {
-      await supabase
-        .from("players")
-        .delete()
-        .eq(
-          "id",
+    if (
+      state.playerId &&
+      !state.skipSelfDelete
+    ) {
+      if (
+        state.room &&
+        state.room.status !== "lobby"
+      ) {
+        await purgePlayer(
           state.playerId
         );
+      } else {
+        await supabase
+          .from("players")
+          .delete()
+          .eq(
+            "id",
+            state.playerId
+          );
+      }
     }
 
     clearSession();
@@ -696,7 +888,10 @@ async function renderPlayerStrip() {
     !show
   );
 
-  if (!show) return;
+  if (!show) {
+    renderKickBar();
+    return;
+  }
 
   let doneIds = new Set();
   const progress = {};
@@ -793,6 +988,26 @@ async function renderPlayerStrip() {
     card.className =
       `player-tab${done ? " done" : ""}${me ? " me" : ""}`;
 
+    card.dataset.playerId = p.id;
+
+    if (isHost() && !me) {
+      card.classList.add("kickable");
+
+      card.classList.toggle(
+        "kick-open",
+        state.kickSelectedId === p.id
+      );
+
+      card.onclick = () => {
+        state.kickSelectedId =
+          state.kickSelectedId === p.id
+            ? null
+            : p.id;
+
+        syncKickUI();
+      };
+    }
+
     card.title =
       `${p.name} · ${p.score ?? 0} point${
         p.score === 1 ? "" : "s"
@@ -839,6 +1054,51 @@ async function renderPlayerStrip() {
 
     strip.appendChild(card);
   });
+
+  renderKickBar();
+}
+
+function renderKickBar() {
+  const bar = $("kick-bar");
+
+  if (!bar) return;
+
+  const inGame = [
+    "writing",
+    "guessing",
+    "reveal",
+  ].includes(state.room?.status);
+
+  const target = state.players.find(
+    (p) => p.id === state.kickSelectedId
+  );
+
+  const visible =
+    inGame &&
+    isHost() &&
+    !!target &&
+    target.id !== state.playerId;
+
+  bar.classList.toggle("hidden", !visible);
+
+  if (!visible) return;
+
+  $("kick-bar-text").textContent =
+    `Remove ${target.name} from the game?`;
+}
+
+function syncKickUI() {
+  document
+    .querySelectorAll("#player-strip .player-tab")
+    .forEach((tab) =>
+      tab.classList.toggle(
+        "kick-open",
+        tab.dataset.playerId ===
+          state.kickSelectedId
+      )
+    );
+
+  renderKickBar();
 }
 
 // ---------------------------------------------------------------------
@@ -912,17 +1172,45 @@ function subscribeRealtime(roomId) {
             payload.old?.id ===
               state.playerId
           ) {
-            alert(
-              "You were removed from the room."
-            );
-
-            await leaveRoom();
+            await handleRemoved();
             return;
           }
 
           await refreshPlayers();
 
           await renderPlayerStrip();
+
+          const status =
+            state.room?.status;
+
+          if (
+            payload.eventType ===
+              "INSERT" &&
+            status !== "lobby" &&
+            payload.new?.id !==
+              state.playerId
+          ) {
+            showToast(
+              `${payload.new?.name || "Someone"} joined the game`
+            );
+          }
+
+          // Someone left / was kicked mid-game:
+          // the rest may now all be done.
+          if (
+            payload.eventType ===
+            "DELETE"
+          ) {
+            if (status === "writing") {
+              await maybeAutoAdvanceWriting();
+            } else if (
+              status === "guessing"
+            ) {
+              await maybeAutoAdvanceGuessing(
+                true
+              );
+            }
+          }
 
           // Never rebuild writing screen
           // because somebody joined/left.
@@ -984,8 +1272,16 @@ function subscribeRealtime(roomId) {
         "broadcast",
         { event: "kicked" },
         ({ payload }) => {
+          if (
+            payload?.id &&
+            payload.id === state.playerId
+          ) {
+            handleRemoved();
+            return;
+          }
+
           if (payload?.name) {
-            showLobbyNotice(
+            announce(
               `${payload.name} was kicked from the room.`
             );
           }
@@ -1070,6 +1366,16 @@ async function kickPlayer(playerId) {
     return;
   }
 
+  if (
+    state.room.status !== "lobby" &&
+    state.players.length <= 2
+  ) {
+    alert(
+      "At least 2 players are needed to keep the game going."
+    );
+    return;
+  }
+
   const confirmed = confirm(
     `Kick ${player.name} from the room?`
   );
@@ -1091,19 +1397,8 @@ async function kickPlayer(playerId) {
   }
 
   try {
-    const {
-      error,
-    } = await supabase
-      .from("players")
-      .delete()
-      .eq(
-        "id",
-        playerId
-      )
-      .eq(
-        "room_id",
-        state.room.id
-      );
+    const error =
+      await purgePlayer(playerId);
 
     if (error) {
       console.error(
@@ -1130,16 +1425,35 @@ async function kickPlayer(playerId) {
     state.channel?.send({
       type: "broadcast",
       event: "kicked",
-      payload: { name: player.name },
+      payload: {
+        id: playerId,
+        name: player.name,
+      },
     });
 
-    showLobbyNotice(
+    announce(
       `${player.name} was kicked from the room.`
     );
 
     await refreshPlayers();
 
-    renderLobby();
+    const status = state.room.status;
+
+    if (status === "lobby") {
+      renderLobby();
+    } else {
+      await renderPlayerStrip();
+
+      if (status === "writing") {
+        await maybeAutoAdvanceWriting();
+      } else if (status === "guessing") {
+        await renderGuessing();
+
+        await maybeAutoAdvanceGuessing(true);
+      } else if (status === "reveal") {
+        await renderReveal();
+      }
+    }
   } catch (error) {
     console.error(
       "Kick player error:",
@@ -1694,6 +2008,8 @@ async function startGame() {
           "status",
           "lobby"
         );
+
+    state.kickSelectedId = null;
 
     if (error) {
       alert(
@@ -2367,7 +2683,7 @@ async function submitGuess(
 // ---------------------------------------------------------------------
 // AUTO ADVANCE GUESSING
 // ---------------------------------------------------------------------
-async function maybeAutoAdvanceGuessing() {
+async function maybeAutoAdvanceGuessing(allowEmpty = false) {
   if (
     state.room?.status !==
     "guessing"
@@ -2391,10 +2707,11 @@ async function maybeAutoAdvanceGuessing() {
       state.room.round
     );
 
+  const list = assignments || [];
+
   const allGuessed =
-    (assignments || [])
-      .length > 0 &&
-    assignments.every(
+    (list.length > 0 || allowEmpty) &&
+    list.every(
       (a) =>
         a.guessed_player_id !==
         null
@@ -3265,6 +3582,18 @@ function initializeButtonFunctions() {
       }
     );
   }
+
+  // IN-GAME KICK BAR
+  bindClick("btn-kick-confirm", () => {
+    if (state.kickSelectedId) {
+      kickPlayer(state.kickSelectedId);
+    }
+  });
+
+  bindClick("btn-kick-cancel", () => {
+    state.kickSelectedId = null;
+    syncKickUI();
+  });
 
   // REVEAL
   bindClick(
