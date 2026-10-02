@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/style.css?v=6">
+<link rel="stylesheet" href="css/style.css?v=7">
 </head>
 <body>
 <div id="startup-loader">
@@ -107,6 +107,16 @@
         </select>
       </label>
 
+      <label class="row">Rounds:
+        <select id="select-rounds">
+          <option value="3">3 rounds</option>
+          <option value="5" selected>5 rounds</option>
+          <option value="7">7 rounds</option>
+          <option value="10">10 rounds</option>
+          <option value="0">Endless</option>
+        </select>
+      </label>
+
       <label class="toggle-row" for="toggle-extempore">
         <span class="toggle-text">🎤 Extempore mode
           <small>Everyone writes about the same fun topic each round</small>
@@ -142,6 +152,7 @@
       placeholder="Write anything — a confession, a lie, a weird fact. Someone will have to guess it's you."></textarea>
     <button id="btn-submit-paper">Submit</button>
     <p id="write-status" class="hint"></p>
+    <div id="write-feed" class="write-feed" aria-live="polite"></div>
   </section>
 
   <!-- GUESSING -->
@@ -171,10 +182,24 @@
     <p id="reveal-hint" class="hint"></p>
   </section>
 
+  <!-- FINAL RESULTS -->
+  <section id="screen-final" class="screen">
+    <h2>🏆 Game Over!</h2>
+    <p id="final-sub" class="hint"></p>
+    <div id="final-podium" class="podium"></div>
+    <div id="final-rest" class="final-rest hidden"></div>
+    <h3 id="final-awards-title" class="section-title hidden">Awards</h3>
+    <div id="final-awards" class="awards"></div>
+    <div id="final-host-controls" class="hidden">
+      <button id="btn-play-again">Play Again</button>
+    </div>
+    <p id="final-hint" class="hint"></p>
+  </section>
+
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script type="module" src="js/game.js?v=7"></script>
+<script type="module" src="js/game.js?v=8"></script>
 
 </body>
 </html>
