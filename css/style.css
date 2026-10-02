@@ -1255,3 +1255,77 @@ input.switch:focus {
   background: white;
   transition: width 0.25s ease;
 }
+
+/* ------------------------------------------------------------------
+   In-game kick (host) + toast
+   ------------------------------------------------------------------ */
+.player-tab.kickable {
+  cursor: pointer;
+}
+
+.player-tab.kickable:hover {
+  border-color: rgba(255, 255, 255, .22);
+}
+
+.player-tab.kick-open {
+  border-color: rgba(255, 100, 100, .55);
+  background: rgba(255, 70, 70, .10);
+}
+
+#kick-bar {
+  width: 100%;
+  max-width: 460px;
+  margin: -6px auto 14px;
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid rgba(255, 100, 100, .30);
+  border-radius: 14px;
+  background: rgba(255, 70, 70, .08);
+  animation: fadein .2s ease;
+}
+
+#kick-bar-text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: .85rem;
+  font-weight: 700;
+  color: #ffb0b0;
+}
+
+.kick-bar-btn {
+  width: auto;
+  padding: 7px 14px;
+  font-size: .8rem;
+  box-shadow: none;
+}
+
+#toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  z-index: 100;
+  max-width: min(90vw, 420px);
+  padding: 10px 16px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(18, 15, 31, .92);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  color: var(--text);
+  font-size: .85rem;
+  font-weight: 700;
+  text-align: center;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, .4);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 16px);
+  transition: opacity .2s ease, transform .2s ease;
+}
+
+#toast.show {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
