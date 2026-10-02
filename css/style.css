@@ -124,6 +124,29 @@ body::before {
   text-shadow: 0 8px 35px rgba(0, 0, 0, 0.32);
 }
 
+.title-wrap {
+  position: relative;
+  display: block;
+  width: min(100%, 400px);
+  margin: 0 auto;
+}
+
+/* Crown sits on the top-left of the logo; it lives inside #site-title,
+   so it disappears exactly when the title does (when the game starts). */
+.title-crown {
+  --crown-size: 30px;
+  position: absolute;
+  top: -12px;
+  left: -8px;
+  width: var(--crown-size);
+  height: var(--crown-size);
+  z-index: 2;
+  transform: rotate(-18deg);
+  user-select: none;
+  pointer-events: none;
+  filter: drop-shadow(0 3px 6px rgba(0, 0, 0, .45));
+}
+
 .title-gif {
   display: block;
   width: min(100%, 400px);
@@ -1100,9 +1123,27 @@ input.switch:focus {
   gap: 8px;
 }
 
+/* Host: click a player row to reveal its Kick button */
+.player-list li.kickable {
+  cursor: pointer;
+  transition: background .16s ease, border-color .16s ease;
+}
+
+.player-list li.kickable:hover {
+  border-color: rgba(255, 255, 255, .2);
+}
+
+.player-list li.kick-open {
+  border-color: rgba(255, 100, 100, .4);
+  background: rgba(255, 70, 70, .06);
+}
+
 .kick-player {
+  display: none;
   flex: 0 0 auto;
-  padding: 6px 10px;
+  width: auto;
+  margin-left: auto;
+  padding: 6px 12px;
   border: 1px solid rgba(255, 100, 100, 0.25);
   border-radius: 8px;
   background: rgba(255, 70, 70, 0.08);
@@ -1110,11 +1151,30 @@ input.switch:focus {
   font-size: 0.72rem;
   font-weight: 700;
   cursor: pointer;
+  box-shadow: none;
+}
+
+.player-list li.kick-open .kick-player {
+  display: inline-block;
 }
 
 .kick-player:hover {
   background: rgba(255, 70, 70, 0.16);
   border-color: rgba(255, 100, 100, 0.45);
+  box-shadow: none;
+}
+
+.lobby-notice {
+  margin: 0 0 12px;
+  padding: 9px 12px;
+  text-align: center;
+  color: #ff9d9d;
+  font-size: .85rem;
+  font-weight: 700;
+  border: 1px solid rgba(255, 100, 100, .28);
+  border-radius: 13px;
+  background: rgba(255, 70, 70, .08);
+  animation: fadein .25s ease;
 }
 
 /* =========================
