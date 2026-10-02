@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/style.css?v=4">
+<link rel="stylesheet" href="css/style.css?v=5">
 </head>
 <body>
 <div id="startup-loader">
@@ -43,6 +43,15 @@
   </div>
 
   <div id="player-strip" class="hidden" aria-label="Players"></div>
+
+  <!-- Host-only: appears when a player tab is clicked during the game -->
+  <div id="kick-bar" class="hidden">
+    <span id="kick-bar-text"></span>
+    <button id="btn-kick-confirm" class="kick-bar-btn" type="button">Kick</button>
+    <button id="btn-kick-cancel" class="secondary kick-bar-btn" type="button">Cancel</button>
+  </div>
+
+  <div id="toast" role="status" aria-live="polite"></div>
 
   <!-- NAME + AVATAR -->
   <section id="screen-name" class="screen active">
@@ -165,7 +174,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script type="module" src="js/game.js?v=6"></script>
+<script type="module" src="js/game.js?v=7"></script>
 
 </body>
 </html>
