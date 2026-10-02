@@ -28,7 +28,12 @@ const state = {
   kickSelectedId: null,
   beingRemoved: false,
   skipSelfDelete: false,
+  feedSeen: new Set(),
+  finalConfettiDone: false,
+  finalSeq: 0,
 };
+
+let resettingGame = false;
 
 let noticeTimer = null;
 let toastTimer = null;
@@ -165,6 +170,210 @@ function announce(msg) {
   } else {
     showToast(msg);
   }
+}
+
+// ---------------------------------------------------------------------
+// ROUND LABEL / FEED / CONFETTI
+// ---------------------------------------------------------------------
+const FEED_COLORS = [
+  "#ff5d8f", "#6ee7ff", "#63e6a3", "#ffd34d",
+  "#c084fc", "#ff9f43", "#60a5fa", "#a3e635",
+];
+
+function playerColor(id) {
+  const i = state.players.findIndex((p) => p.id === id);
+
+  return FEED_COLORS[(i < 0 ? 0 : i) % FEED_COLORS.length];
+}
+
+function roundLabel(room) {
+  const total = room?.total_rounds || 0;
+
+  return total > 0
+    ? `${room.round} of ${total}`
+    : `${room.round}`;
+}
+
+function isLastRound() {
+  const total = state.room?.total_rounds || 0;
+
+  return total > 0 && state.room.round >= total;
+}
+
+function addFeedMessage(authorId) {
+  const feed = $("write-feed");
+
+  if (!feed || state.feedSeen.has(authorId)) return;
+
+  const player = state.players.find(
+    (p) => p.id === authorId
+  );
+
+  if (!player) return;
+
+  state.feedSeen.add(authorId);
+
+  const me = authorId === state.playerId;
+
+  const row = document.createElement("div");
+
+  row.className = "feed-msg";
+  row.style.setProperty("--c", playerColor(authorId));
+
+  row.innerHTML = `<strong>${
+    me ? "You" : escapeHtml(player.name)
+  }</strong> ${
+    me ? "have completed your" : "has completed their"
+  } paper ✓`;
+
+  feed.appendChild(row);
+}
+
+async function seedWriteFeed() {
+  if (!state.room) return;
+
+  const round = state.room.round;
+
+  const { data } = await supabase
+    .from("papers")
+    .select("author_id, auto_filled")
+    .eq("room_id", state.room.id)
+    .eq("round", round);
+
+  if (state.room?.round !== round) return;
+
+  (data || []).forEach((p) => {
+    if (!p.auto_filled) addFeedMessage(p.author_id);
+  });
+}
+
+function launchConfetti(duration = 6000) {
+  if (
+    window.matchMedia?.(
+      "(prefers-reduced-motion: reduce)"
+    ).matches
+  ) {
+    return;
+  }
+
+  document.getElementById("confetti-canvas")?.remove();
+
+  const canvas = document.createElement("canvas");
+
+  canvas.id = "confetti-canvas";
+
+  document.body.appendChild(canvas);
+
+  const ctx = canvas.getContext("2d");
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+  const resize = () => {
+    canvas.width = window.innerWidth * dpr;
+    canvas.height = window.innerHeight * dpr;
+  };
+
+  resize();
+
+  window.addEventListener("resize", resize);
+
+  const colors = [
+    "#ff5d8f", "#6ee7ff", "#63e6a3", "#ffd34d",
+    "#c084fc", "#ff9f43", "#ffffff",
+  ];
+
+  const parts = [];
+
+  const burst = (x, y, angle, n) => {
+    for (let i = 0; i < n; i++) {
+      const a = angle + (Math.random() - 0.5) * 0.9;
+      const speed = (10 + Math.random() * 16) * dpr;
+
+      parts.push({
+        x,
+        y,
+        vx: Math.cos(a) * speed,
+        vy: Math.sin(a) * speed,
+        w: (6 + Math.random() * 6) * dpr,
+        h: (9 + Math.random() * 8) * dpr,
+        rot: Math.random() * 6.28,
+        vr: (Math.random() - 0.5) * 0.35,
+        flip: Math.random() * 6.28,
+        color: colors[Math.floor(Math.random() * colors.length)],
+        round: Math.random() < 0.25,
+      });
+    }
+  };
+
+  const W = () => canvas.width;
+  const H = () => canvas.height;
+
+  burst(0, H(), -Math.PI / 3, 90);
+  burst(W(), H(), (-2 * Math.PI) / 3, 90);
+
+  setTimeout(() => {
+    burst(0, H(), -Math.PI / 3.2, 70);
+    burst(W(), H(), (-2.2 * Math.PI) / 3.2, 70);
+  }, 700);
+
+  const start = performance.now();
+
+  let last = start;
+
+  const frame = (now) => {
+    const dt = Math.min((now - last) / 16.7, 3);
+
+    last = now;
+
+    // gentle rain from the top for the first few seconds
+    if (now - start < duration - 1500) {
+      for (let i = 0; i < 2; i++) {
+        burst(Math.random() * W(), -10 * dpr, Math.PI / 2, 1);
+      }
+    }
+
+    ctx.clearRect(0, 0, W(), H());
+
+    for (let i = parts.length - 1; i >= 0; i--) {
+      const p = parts[i];
+
+      p.vx *= 0.99;
+      p.vy = p.vy * 0.99 + 0.42 * dpr * dt;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.rot += p.vr * dt;
+      p.flip += 0.15 * dt;
+
+      if (p.y > H() + 40 * dpr) {
+        parts.splice(i, 1);
+        continue;
+      }
+
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.rot);
+      ctx.scale(Math.cos(p.flip), 1);
+      ctx.fillStyle = p.color;
+
+      if (p.round) {
+        ctx.beginPath();
+        ctx.arc(0, 0, p.w / 2, 0, 6.28);
+        ctx.fill();
+      } else {
+        ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+      }
+
+      ctx.restore();
+    }
+
+    if (now - start < duration + 4000 && (parts.length || now - start < duration)) {
+      requestAnimationFrame(frame);
+    } else {
+      window.removeEventListener("resize", resize);
+      canvas.remove();
+    }
+  };
+
+  requestAnimationFrame(frame);
 }
 
 // Safe event binding.
@@ -443,6 +652,14 @@ async function joinRoom() {
       setError(
         "mode-error",
         "Room not found."
+      );
+      return;
+    }
+
+    if (room.game_over) {
+      setError(
+        "mode-error",
+        "That game just finished — ask the host to play again."
       );
       return;
     }
@@ -798,6 +1015,14 @@ async function leaveRoom() {
     state.revealIndex = 0;
     state.revealRound = null;
     state.kickSelectedId = null;
+    state.feedSeen = new Set();
+    state.finalConfettiDone = false;
+
+    if ($("write-feed")) {
+      $("write-feed").innerHTML = "";
+    }
+
+    document.getElementById("confetti-canvas")?.remove();
 
     clearTimeout(noticeTimer);
     $("lobby-notice")?.classList.add("hidden");
@@ -877,11 +1102,13 @@ async function renderPlayerStrip() {
 
   const status = state.room.status;
 
-  const show = [
-    "writing",
-    "guessing",
-    "reveal",
-  ].includes(status);
+  const show =
+    [
+      "writing",
+      "guessing",
+      "reveal",
+    ].includes(status) &&
+    !state.room.game_over;
 
   strip.classList.toggle(
     "hidden",
@@ -1063,11 +1290,13 @@ function renderKickBar() {
 
   if (!bar) return;
 
-  const inGame = [
-    "writing",
-    "guessing",
-    "reveal",
-  ].includes(state.room?.status);
+  const inGame =
+    [
+      "writing",
+      "guessing",
+      "reveal",
+    ].includes(state.room?.status) &&
+    !state.room?.game_over;
 
   const target = state.players.find(
     (p) => p.id === state.kickSelectedId
@@ -1234,11 +1463,20 @@ function subscribeRealtime(roomId) {
           table: "papers",
           filter: `room_id=eq.${roomId}`,
         },
-        async () => {
+        async (payload) => {
           if (
             state.room?.status ===
             "writing"
           ) {
+            if (
+              payload.eventType === "INSERT" &&
+              payload.new &&
+              !payload.new.auto_filled &&
+              payload.new.round === state.room.round
+            ) {
+              addFeedMessage(payload.new.author_id);
+            }
+
             await renderPlayerStrip();
 
             await maybeAutoAdvanceWriting();
@@ -1312,6 +1550,12 @@ function renderForStatus() {
     state.room.status
   ) {
     case "lobby":
+      // fresh start (also after "Play Again")
+      state.currentWritingRound = null;
+      state.revealRound = null;
+      state.revealIndex = 0;
+      state.finalConfettiDone = false;
+
       renderLobby();
       showScreen("lobby");
       break;
@@ -1327,8 +1571,13 @@ function renderForStatus() {
       break;
 
     case "reveal":
-      renderReveal();
-      showScreen("reveal");
+      if (state.room.game_over) {
+        renderFinal();
+        showScreen("final");
+      } else {
+        renderReveal();
+        showScreen("reveal");
+      }
       break;
 
     default:
@@ -1962,6 +2211,33 @@ async function startGame() {
         10
       ) || 60;
 
+    const roundsValue = parseInt(
+      $("select-rounds")?.value,
+      10
+    );
+
+    const { error: roundsError } =
+      await supabase
+        .from("rooms")
+        .update({
+          total_rounds: Number.isNaN(roundsValue)
+            ? 0
+            : roundsValue,
+          game_over: false,
+        })
+        .eq("id", state.room.id);
+
+    if (roundsError) {
+      console.warn(
+        "Could not save round count:",
+        roundsError
+      );
+
+      alert(
+        "The round limit needs a small database update (run the SQL from the instructions). Starting an endless game for now."
+      );
+    }
+
     const endsAt =
       new Date(
         Date.now() +
@@ -2045,7 +2321,7 @@ function renderWriting() {
 
   if ($("write-round")) {
     $("write-round").textContent =
-      state.room.round;
+      roundLabel(state.room);
   }
 
   const topic =
@@ -2081,6 +2357,15 @@ function renderWriting() {
 
   state.currentWritingRound =
     state.room.round;
+
+  // New round: fresh "completed their paper" feed.
+  state.feedSeen = new Set();
+
+  if ($("write-feed")) {
+    $("write-feed").innerHTML = "";
+  }
+
+  seedWriteFeed();
 
   if ($("write-text")) {
     $("write-text").value = "";
@@ -2244,6 +2529,8 @@ async function submitPaper() {
 
     if (!error) {
       textarea.disabled = true;
+
+      addFeedMessage(state.playerId);
     }
 
     await renderPlayerStrip();
@@ -2837,7 +3124,7 @@ async function renderReveal() {
 
   if ($("reveal-round")) {
     $("reveal-round").textContent =
-      state.room.round;
+      roundLabel(state.room);
   }
 
   renderTopicLine(
@@ -3108,11 +3395,21 @@ async function renderReveal() {
       !host
     );
 
+  const last = isLastRound();
+
+  if ($("btn-next-round")) {
+    $("btn-next-round").textContent = last
+      ? "Final Results 🏆"
+      : "Next Round";
+  }
+
   if ($("reveal-hint")) {
     $("reveal-hint").textContent =
       host
         ? ""
-        : "Waiting for the host to start the next round…";
+        : last
+          ? "Waiting for the host to show the final results…"
+          : "Waiting for the host to start the next round…";
   }
 }
 
@@ -3322,6 +3619,314 @@ async function nextRound() {
             .originalText;
       }
     }
+  }
+}
+
+// =====================================================================
+// FINAL RESULTS
+// =====================================================================
+async function finishGame() {
+  if (!state.room || !isHost() || !isLastRound()) {
+    return;
+  }
+
+  const button = $("btn-next-round");
+
+  if (button) button.disabled = true;
+
+  const { error } = await supabase
+    .from("rooms")
+    .update({ game_over: true })
+    .eq("id", state.room.id)
+    .eq("status", "reveal");
+
+  if (error) {
+    alert("Could not finish the game: " + error.message);
+  }
+
+  if (button) button.disabled = false;
+}
+
+async function playAgain() {
+  if (resettingGame || !state.room || !isHost()) {
+    return;
+  }
+
+  resettingGame = true;
+
+  const button = $("btn-play-again");
+
+  if (button) button.disabled = true;
+
+  try {
+    const roomId = state.room.id;
+
+    // Old rounds must go, otherwise round 1 of the new game
+    // would collide with round 1 of the old one.
+    await supabase
+      .from("assignments")
+      .delete()
+      .eq("room_id", roomId);
+
+    const { error: papersError } = await supabase
+      .from("papers")
+      .delete()
+      .eq("room_id", roomId);
+
+    if (papersError) {
+      alert(
+        "Could not reset the game: " + papersError.message
+      );
+      return;
+    }
+
+    await supabase
+      .from("players")
+      .update({ score: 0 })
+      .eq("room_id", roomId);
+
+    const { error } = await supabase
+      .from("rooms")
+      .update({
+        status: "lobby",
+        round: 1,
+        game_over: false,
+        topic: null,
+        used_topics: [],
+      })
+      .eq("id", roomId);
+
+    if (error) {
+      alert("Could not restart the game: " + error.message);
+    }
+  } finally {
+    resettingGame = false;
+
+    if (button) button.disabled = false;
+  }
+}
+
+function awardWinners(list, valueFn, best) {
+  const values = list
+    .map(valueFn)
+    .filter((v) => v !== null);
+
+  if (values.length < 2) return null;
+
+  const max = Math.max(...values);
+  const min = Math.min(...values);
+
+  if (max === min) return null;
+
+  const target = best === "max" ? max : min;
+
+  return {
+    value: target,
+    players: list.filter((p) => valueFn(p) === target),
+  };
+}
+
+async function renderFinal() {
+  const seq = ++state.finalSeq;
+
+  await refreshPlayers();
+
+  const { data: rows } = await supabase
+    .from("assignments")
+    .select("assigned_to, guessed_player_id, papers(author_id)")
+    .eq("room_id", state.room.id);
+
+  if (seq !== state.finalSeq || !state.room) return;
+
+  const players = [...state.players].sort(
+    (a, b) => (b.score || 0) - (a.score || 0)
+  );
+
+  // ---- stats across the whole game ----
+  const stats = {};
+
+  players.forEach((p) => {
+    stats[p.id] = {
+      guesses: 0,
+      correct: 0,
+      about: 0,
+      identified: 0,
+    };
+  });
+
+  (rows || []).forEach((a) => {
+    if (a.guessed_player_id === null) return;
+
+    const author = a.papers?.author_id;
+    const ok = a.guessed_player_id === author;
+
+    const guesser = stats[a.assigned_to];
+
+    if (guesser) {
+      guesser.guesses++;
+      if (ok) guesser.correct++;
+    }
+
+    const writer = stats[author];
+
+    if (writer) {
+      writer.about++;
+      if (ok) writer.identified++;
+    }
+  });
+
+  const accuracy = (p) =>
+    stats[p.id].guesses > 0
+      ? stats[p.id].correct / stats[p.id].guesses
+      : null;
+
+  const spotted = (p) =>
+    stats[p.id].about > 0
+      ? stats[p.id].identified / stats[p.id].about
+      : null;
+
+  const pct = (v) => `${Math.round(v * 100)}%`;
+
+  // ---- header ----
+  if ($("final-sub")) {
+    $("final-sub").textContent =
+      `${state.room.round} round${state.room.round === 1 ? "" : "s"} played`;
+  }
+
+  // ---- podium (2nd, 1st, 3rd) ----
+  const order =
+    players.length >= 3
+      ? [1, 0, 2]
+      : players.length === 2
+        ? [1, 0]
+        : [0];
+
+  if ($("final-podium")) {
+    $("final-podium").innerHTML = order
+      .map((i) => {
+        const p = players[i];
+        const place = i + 1;
+        const score = p.score || 0;
+
+        return `
+          <div class="podium-place p${place}">
+            ${
+              place === 1
+                ? `<img class="podium-crown" src="assets/crown.gif" alt="" draggable="false">`
+                : ""
+            }
+            <div class="podium-avatar">
+              ${avatarMarkup(p.avatar, "avatar-svg")}
+            </div>
+            <div class="podium-name">${escapeHtml(p.name)}</div>
+            <div class="podium-score">${score} pt${score === 1 ? "" : "s"}</div>
+            <div class="podium-block"><span>${place}</span></div>
+          </div>
+        `;
+      })
+      .join("");
+  }
+
+  // ---- everyone else ----
+  const rest = players.slice(3);
+  const restBox = $("final-rest");
+
+  if (restBox) {
+    restBox.classList.toggle("hidden", rest.length === 0);
+
+    restBox.innerHTML = rest
+      .map(
+        (p) => `
+          <div class="score-row">
+            <span>
+              ${avatarMarkup(p.avatar, "avatar-svg inline-avatar")}
+              ${escapeHtml(p.name)}
+            </span>
+            <span>${p.score || 0}</span>
+          </div>
+        `
+      )
+      .join("");
+  }
+
+  // ---- awards ----
+  const defs = [
+    {
+      icon: "🎯",
+      title: "Sharpshooter",
+      desc: "Best guessing accuracy",
+      pick: awardWinners(players, accuracy, "max"),
+      detail: (v) => `${pct(v)} correct`,
+    },
+    {
+      icon: "🎭",
+      title: "Master of Disguise",
+      desc: "Hardest writer to identify",
+      pick: awardWinners(players, spotted, "min"),
+      detail: (v) => `only ${pct(v)} spotted`,
+    },
+    {
+      icon: "📖",
+      title: "Open Book",
+      desc: "Easiest writer to recognise",
+      pick: awardWinners(players, spotted, "max"),
+      detail: (v) => `${pct(v)} spotted`,
+    },
+    {
+      icon: "🤪",
+      title: "Most Fooled",
+      desc: "Lowest guessing accuracy",
+      pick: awardWinners(players, accuracy, "min"),
+      detail: (v) => `${pct(v)} correct`,
+    },
+  ].filter((d) => d.pick);
+
+  $("final-awards-title")?.classList.toggle(
+    "hidden",
+    defs.length === 0
+  );
+
+  if ($("final-awards")) {
+    $("final-awards").innerHTML = defs
+      .map(
+        (d) => `
+          <div class="award-card">
+            <div class="award-icon">${d.icon}</div>
+            <div class="award-body">
+              <div class="award-title">${d.title}</div>
+              <div class="award-desc">${d.desc}</div>
+              <div class="award-winner">
+                ${d.pick.players
+                  .map(
+                    (p) =>
+                      `${avatarMarkup(p.avatar, "avatar-svg inline-avatar")}${escapeHtml(p.name)}`
+                  )
+                  .join(" &amp; ")}
+              </div>
+            </div>
+            <div class="award-detail">${d.detail(d.pick.value)}</div>
+          </div>
+        `
+      )
+      .join("");
+  }
+
+  // ---- host controls ----
+  const host = isHost();
+
+  $("final-host-controls")?.classList.toggle("hidden", !host);
+
+  if ($("final-hint")) {
+    $("final-hint").textContent = host
+      ? ""
+      : "Waiting for the host to start a new game…";
+  }
+
+  // ---- confetti, once per game ----
+  if (!state.finalConfettiDone) {
+    state.finalConfettiDone = true;
+
+    launchConfetti();
   }
 }
 
@@ -3545,8 +4150,10 @@ function initializeButtonFunctions() {
 
   bindClick(
     "btn-next-round",
-    nextRound
+    () => (isLastRound() ? finishGame() : nextRound())
   );
+
+  bindClick("btn-play-again", playAgain);
 
   bindClick(
     "btn-leave",
