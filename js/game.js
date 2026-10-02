@@ -376,6 +376,31 @@ function launchConfetti(duration = 6000) {
   requestAnimationFrame(frame);
 }
 
+// ---------------------------------------------------------------------
+// BUTTON CLICK SOUND  (put the file at assets/button.mp3)
+// ---------------------------------------------------------------------
+const buttonSound = new Audio("assets/button.mp3");
+
+buttonSound.preload = "auto";
+buttonSound.volume = 0.6;
+
+document.addEventListener(
+  "click",
+  (e) => {
+    const button = e.target.closest?.("button");
+
+    if (!button || button.disabled) return;
+
+    // clone so rapid clicks can overlap instead of cutting off
+    const sound = buttonSound.cloneNode();
+
+    sound.volume = buttonSound.volume;
+
+    sound.play().catch(() => {});
+  },
+  true
+);
+
 // Safe event binding.
 function bindClick(id, handler) {
   const el = $(id);
