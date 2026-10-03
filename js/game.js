@@ -34,6 +34,8 @@ const state = {
   chatOpen: false,
   chatUnread: 0,
   chatLastSent: 0,
+  me: null,
+  kickedByHost: false,
 };
 
 let resettingGame = false;
@@ -571,9 +573,16 @@ function sendChat() {
   addChatMessage(msg);
 }
 
-// A removal is only honoured if the player row is really gone.
+// Own player row vanished. A real kick always sends a "kicked" broadcast
+// right after deleting the row. If none arrives, something else deleted
+// the row (database job/trigger, stray delete) -> quietly restore it
+// instead of throwing the player out.
 async function confirmRemoved() {
   if (!state.playerId || !state.room) return;
+
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+
+  if (state.kickedByHost || state.beingRemoved || !state.room) return;
 
   const { data, error } = await supabase
     .from("players")
@@ -581,13 +590,49 @@ async function confirmRemoved() {
     .eq("id", state.playerId)
     .maybeSingle();
 
-  if (error) return;
+  if (error || data) return;
 
-  if (!data) {
+  console.warn(
+    "[Papers] Own player row was deleted without a kick - restoring it.",
+    state.me
+  );
+
+  await restoreSelf();
+}
+
+async function restoreSelf() {
+  const me = state.me;
+
+  if (!me || !state.room) {
     await handleRemoved();
-  } else {
-    console.warn("[Papers] Ignored a removal event: player still exists.");
+    return;
   }
+
+  await refreshPlayers();
+
+  const hostTaken = state.players.some(
+    (p) => p.is_host && p.id !== me.id
+  );
+
+  const { error } = await supabase.from("players").insert({
+    id: me.id,
+    room_id: me.room_id,
+    name: me.name,
+    avatar: me.avatar,
+    score: me.score || 0,
+    is_host: !!me.is_host && !hostTaken,
+  });
+
+  if (error) {
+    console.error("[Papers] Could not restore player:", error);
+    await handleRemoved();
+    return;
+  }
+
+  await refreshPlayers();
+  await renderPlayerStrip();
+
+  if (state.room?.status === "lobby") renderLobby();
 }
 
 // Safe event binding.
@@ -1146,6 +1191,8 @@ async function enterRoom(
   chatReset();
   setChatVisible(true);
 
+  state.kickedByHost = false;
+
   if ($("room-bar-code")) {
     $("room-bar-code").textContent =
       room.code;
@@ -1306,6 +1353,12 @@ async function refreshPlayers() {
 
   if (!error) {
     state.players = data || [];
+
+    const mine = state.players.find(
+      (p) => p.id === state.playerId
+    );
+
+    if (mine) state.me = { ...mine };
   }
 }
 
@@ -1734,7 +1787,8 @@ function subscribeRealtime(roomId) {
             payload?.id &&
             payload.id === state.playerId
           ) {
-            confirmRemoved();
+            state.kickedByHost = true;
+            handleRemoved();
             return;
           }
 
