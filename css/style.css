@@ -1563,6 +1563,123 @@ input.switch:focus {
     height: 100px;
     font-size: 2.6rem;
   }
+
+  /* ---- Compact in-game mobile layout (frees vertical space) ---- */
+  body {
+    padding: 14px 12px 28px;
+  }
+
+  h2 {
+    margin: 2px 0 8px;
+    font-size: 1.15rem;
+  }
+
+  #room-bar {
+    margin-bottom: 8px;
+    padding: 4px 4px 4px 14px;
+  }
+
+  #room-bar button {
+    padding: 4px 13px;
+    font-size: .72rem;
+  }
+
+  #room-bar-code {
+    font-size: .8rem;
+  }
+
+  #player-strip {
+    margin-bottom: 8px;
+    gap: 5px;
+    padding: 5px;
+    border-radius: 16px;
+  }
+
+  .player-tab {
+    gap: 2px;
+    padding: 7px 2px 5px;
+    border-radius: 12px;
+  }
+
+  .player-tab-avatar {
+    width: 30px;
+    height: 30px;
+    min-width: 30px;
+    min-height: 30px;
+    border-width: 1.5px;
+  }
+
+  .player-tab-name {
+    -webkit-line-clamp: 1;
+    min-height: 0;
+    font-size: .68rem;
+  }
+
+  .player-tab-status {
+    margin-top: 1px;
+    font-size: .58rem;
+  }
+
+  .player-status-dot {
+    width: 5px;
+    height: 5px;
+    margin-right: 3px;
+  }
+
+  .player-tab-score {
+    top: 2px;
+    right: 2px;
+    min-width: 16px;
+    padding: 0 5px;
+    font-size: .56rem;
+  }
+
+  .paper {
+    padding: 10px 14px 10px 42px;
+    font-size: .92rem;
+    line-height: 26px;
+    min-height: 78px;
+    margin: 14px 0 10px;
+    background-image:
+      linear-gradient(90deg, transparent 32px, rgba(255, 93, 143, .5) 32px, rgba(255, 93, 143, .5) 34px, transparent 34px),
+      repeating-linear-gradient(transparent 0, transparent 25px, rgba(70, 100, 160, .20) 25px, rgba(70, 100, 160, .20) 26px);
+    background-position: 0 0, 0 12px;
+  }
+
+  .paper::before {
+    top: -9px;
+    width: 64px;
+    height: 17px;
+  }
+
+  #guess-progress {
+    margin: -2px 0 0;
+    font-size: .76rem;
+    min-height: 0;
+  }
+
+  .player-grid {
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+
+  .player-card {
+    gap: 8px;
+    padding: 6px 10px;
+    border-radius: 12px;
+    font-size: .88rem;
+  }
+
+  .guess-avatar,
+  .guess-avatar.avatar-svg {
+    width: 26px;
+    height: 26px;
+    flex-basis: 26px;
+  }
+
+  .hint {
+    font-size: .78rem;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
