@@ -31,6 +31,9 @@ const state = {
   feedSeen: new Set(),
   finalConfettiDone: false,
   finalSeq: 0,
+  chatOpen: false,
+  chatUnread: 0,
+  chatLastSent: 0,
 };
 
 let resettingGame = false;
@@ -400,6 +403,192 @@ document.addEventListener(
   },
   true
 );
+
+// ---------------------------------------------------------------------
+// CHAT  (sent over the room's realtime broadcast channel)
+// ---------------------------------------------------------------------
+function initChat() {
+  if ($("chat-dock")) return;
+
+  const dock = document.createElement("div");
+
+  dock.id = "chat-dock";
+  dock.className = "hidden";
+
+  dock.innerHTML = `
+    <div id="chat-panel" class="hidden" role="dialog" aria-label="Room chat">
+      <div class="chat-head">
+        <span>💬 Chat</span>
+        <button id="chat-close" class="chat-x" type="button" aria-label="Close chat">✕</button>
+      </div>
+      <div id="chat-log" class="chat-log" aria-live="polite"></div>
+      <div class="chat-form">
+        <input id="chat-input" maxlength="120" placeholder="Say something…" autocomplete="off">
+        <button id="chat-send" type="button">Send</button>
+      </div>
+    </div>
+    <button id="chat-toggle" class="chat-toggle" type="button" aria-label="Open chat">
+      💬<span id="chat-badge" class="chat-badge hidden">0</span>
+    </button>
+  `;
+
+  document.body.appendChild(dock);
+
+  $("chat-toggle").onclick = () => setChatOpen(true);
+  $("chat-close").onclick = () => setChatOpen(false);
+  $("chat-send").onclick = sendChat;
+
+  $("chat-input").addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      sendChat();
+    }
+  });
+}
+
+function setChatVisible(visible) {
+  $("chat-dock")?.classList.toggle("hidden", !visible);
+
+  if (!visible) setChatOpen(false);
+}
+
+function setChatOpen(open) {
+  state.chatOpen = open;
+
+  $("chat-panel")?.classList.toggle("hidden", !open);
+  $("chat-toggle")?.classList.toggle("hidden", open);
+
+  if (open) {
+    state.chatUnread = 0;
+    updateChatBadge();
+
+    const log = $("chat-log");
+
+    if (log) log.scrollTop = log.scrollHeight;
+
+    $("chat-input")?.focus();
+  }
+}
+
+function updateChatBadge() {
+  const badge = $("chat-badge");
+
+  if (!badge) return;
+
+  const n = state.chatUnread;
+
+  badge.textContent = n > 9 ? "9+" : String(n);
+  badge.classList.toggle("hidden", n <= 0);
+}
+
+function chatReset() {
+  state.chatUnread = 0;
+  state.chatOpen = false;
+
+  if ($("chat-log")) $("chat-log").innerHTML = "";
+  if ($("chat-input")) $("chat-input").value = "";
+
+  $("chat-panel")?.classList.add("hidden");
+  $("chat-toggle")?.classList.remove("hidden");
+
+  updateChatBadge();
+}
+
+function addChatMessage(msg) {
+  const log = $("chat-log");
+
+  if (!log || !msg || typeof msg.text !== "string") return;
+
+  const text = msg.text.trim().slice(0, 120);
+
+  if (!text) return;
+
+  const me = msg.pid === state.playerId;
+
+  const sender = state.players.find((p) => p.id === msg.pid);
+
+  const name = me
+    ? "You"
+    : String(sender?.name || msg.name || "Player").slice(0, 16);
+
+  const nearBottom =
+    log.scrollTop + log.clientHeight >= log.scrollHeight - 40;
+
+  const row = document.createElement("div");
+
+  row.className = `chat-msg${me ? " me" : ""}`;
+  row.style.setProperty("--c", playerColor(msg.pid));
+
+  row.innerHTML = `<strong>${escapeHtml(name)}</strong> <span>${escapeHtml(text)}</span>`;
+
+  log.appendChild(row);
+
+  while (log.children.length > 100) {
+    log.removeChild(log.firstChild);
+  }
+
+  if (nearBottom || me) {
+    log.scrollTop = log.scrollHeight;
+  }
+
+  if (!me && !state.chatOpen) {
+    state.chatUnread++;
+    updateChatBadge();
+  }
+}
+
+function sendChat() {
+  const input = $("chat-input");
+
+  if (!input || !state.channel || !state.playerId) return;
+
+  const text = input.value.trim();
+
+  if (!text) return;
+
+  const now = Date.now();
+
+  if (now - state.chatLastSent < 700) return;
+
+  state.chatLastSent = now;
+
+  input.value = "";
+
+  const me = state.players.find((p) => p.id === state.playerId);
+
+  const msg = {
+    pid: state.playerId,
+    name: me?.name || "Player",
+    text: text.slice(0, 120),
+  };
+
+  state.channel.send({
+    type: "broadcast",
+    event: "chat",
+    payload: msg,
+  });
+
+  addChatMessage(msg);
+}
+
+// A removal is only honoured if the player row is really gone.
+async function confirmRemoved() {
+  if (!state.playerId || !state.room) return;
+
+  const { data, error } = await supabase
+    .from("players")
+    .select("id")
+    .eq("id", state.playerId)
+    .maybeSingle();
+
+  if (error) return;
+
+  if (!data) {
+    await handleRemoved();
+  } else {
+    console.warn("[Papers] Ignored a removal event: player still exists.");
+  }
+}
 
 // Safe event binding.
 function bindClick(id, handler) {
@@ -954,6 +1143,9 @@ async function enterRoom(
 
   $("room-bar")?.classList.remove("hidden");
 
+  chatReset();
+  setChatVisible(true);
+
   if ($("room-bar-code")) {
     $("room-bar-code").textContent =
       room.code;
@@ -1050,6 +1242,9 @@ async function leaveRoom() {
     document.getElementById("confetti-canvas")?.remove();
 
     clearTimeout(noticeTimer);
+
+    chatReset();
+    setChatVisible(false);
     $("lobby-notice")?.classList.add("hidden");
 
     $("room-bar")?.classList.add("hidden");
@@ -1426,7 +1621,7 @@ function subscribeRealtime(roomId) {
             payload.old?.id ===
               state.playerId
           ) {
-            await handleRemoved();
+            await confirmRemoved();
             return;
           }
 
@@ -1539,7 +1734,7 @@ function subscribeRealtime(roomId) {
             payload?.id &&
             payload.id === state.playerId
           ) {
-            handleRemoved();
+            confirmRemoved();
             return;
           }
 
@@ -1548,6 +1743,17 @@ function subscribeRealtime(roomId) {
               `${payload.name} was kicked from the room.`
             );
           }
+        }
+      )
+
+      // CHAT
+      .on(
+        "broadcast",
+        { event: "chat" },
+        ({ payload }) => {
+          if (payload?.pid === state.playerId) return;
+
+          addChatMessage(payload);
         }
       )
 
@@ -4130,6 +4336,8 @@ function initializeButtonFunctions() {
 
   renderAvatarPicker();
 
+  initChat();
+
   // AVATAR
   bindClick(
     "avatar-prev",
@@ -4242,6 +4450,8 @@ function initializeButtonFunctions() {
   document.addEventListener(
     "keydown",
     (event) => {
+      if (event.target?.matches?.("input, textarea")) return;
+
       const revealScreen =
         $("screen-reveal");
 
